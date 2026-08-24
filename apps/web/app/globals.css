@@ -1,0 +1,18 @@
+:root {
+  --bg: #f1eee3;
+  --ink: #1b2430;
+  --ink-soft: #52606d;
+  --line: #3e5c76;
+  --accent: #af3a22;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, sans-serif;
+}
