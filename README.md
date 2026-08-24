@@ -48,8 +48,12 @@ pnpm install
 
    ```bash
    pnpm db:migrate
-   psql "$DATABASE_URL" -f packages/database/prisma/rls.sql
+   pnpm --filter @chainos/database rls
    ```
+
+   (`rls` runs `packages/database/scripts/apply-rls.js`, equivalent to
+   `psql "$DATABASE_URL" -f packages/database/prisma/rls.sql` if you'd
+   rather use `psql` directly.)
 
 4. Start everything:
 
@@ -58,6 +62,26 @@ pnpm install
    ```
 
    API on `:3001`, web on `:3000`.
+
+## Deployment
+
+`apps/api` is set up for [Prisma Compute](https://www.prisma.io/docs) —
+`prisma.compute.ts` holds its config, project `proj_cmt6yf5h716tr5nc3pekh4dex`
+("ChainOS", `ap-southeast-1`) already has its primary database provisioned,
+migrated, and RLS-applied. Deploy with:
+
+```bash
+cd apps/api
+npx @prisma/cli@latest app deploy --project proj_cmt6yf5h716tr5nc3pekh4dex
+```
+
+As of this writing the local build step of `@prisma/cli@3.0.0-beta.30`
+has a reproducible bug on Windows: it scans the whole user profile
+directory instead of just the project, and crashes (`EBUSY` on a file
+locked by an unrelated running app, then a Node OOM) before finishing.
+Filed as CLI feedback (`prisma-cli feedback`, id `01a032fc-b74e-7000-93eb-508dfae643d2`).
+Worth trying again once the CLI updates, or from WSL/Linux/macOS/CI where
+this class of Windows file-locking issue doesn't apply.
 
 ## Not yet set up
 
