@@ -3,8 +3,10 @@ import {
   Boxes,
   Building2,
   ClipboardList,
+  Contact,
   LayoutDashboard,
   Package,
+  ShoppingCart,
   Truck,
   Warehouse as WarehouseIcon,
 } from "lucide-react";
@@ -33,11 +35,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <NavLink href="/suppliers" icon={<Building2 className="size-4" aria-hidden />}>
             Suppliers
           </NavLink>
+          <NavLink href="/customers" icon={<Contact className="size-4" aria-hidden />}>
+            Customers
+          </NavLink>
           <NavLink href="/products" icon={<Package className="size-4" aria-hidden />}>
             Products
           </NavLink>
           <NavLink href="/purchase-orders" icon={<ClipboardList className="size-4" aria-hidden />}>
             Purchase Orders
+          </NavLink>
+          <NavLink href="/sales-orders" icon={<ShoppingCart className="size-4" aria-hidden />}>
+            Sales Orders
           </NavLink>
           <NavLink href="/inventory" icon={<Boxes className="size-4" aria-hidden />}>
             Inventory

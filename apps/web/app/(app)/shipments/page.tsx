@@ -78,7 +78,7 @@ export default async function ShipmentsPage({ searchParams }: { searchParams: Pr
           <EmptyState
             icon={Truck}
             title={hasFilters ? "No shipments match these filters" : "No shipments yet"}
-            description={hasFilters ? "Try broadening your filters." : "Shipments are created from an approved purchase order."}
+            description={hasFilters ? "Try broadening your filters." : "Shipments are created from approved purchase orders or allocated sales orders."}
           />
         ) : (
           <Table>
@@ -86,34 +86,52 @@ export default async function ShipmentsPage({ searchParams }: { searchParams: Pr
               <Tr>
                 <Th>Shipment</Th>
                 <Th>Direction</Th>
-                <Th>Linked PO</Th>
+                <Th>Related Order</Th>
+                <Th>Origin</Th>
                 <Th>Destination</Th>
                 <Th>Created</Th>
                 <Th>Status</Th>
               </Tr>
             </Thead>
             <Tbody>
-              {shipments.map((s) => (
-                <Tr key={s.id}>
+              {shipments.map((shipment) => (
+                <Tr key={shipment.id}>
                   <Td>
-                    <Link href={`/shipments/${s.id}`} className="font-medium text-accent hover:underline">
-                      {s.shipmentNumber}
+                    <Link href={`/shipments/${shipment.id}`} className="font-medium text-accent hover:underline">
+                      {shipment.shipmentNumber}
                     </Link>
                   </Td>
-                  <Td className="text-ink-soft">{s.direction}</Td>
+                  <Td>
+                    <Badge tone={shipment.direction === "OUTBOUND" ? "accent" : "info"}>{shipment.direction}</Badge>
+                  </Td>
                   <Td className="text-ink-soft">
-                    {s.purchaseOrder ? (
-                      <Link href={`/purchase-orders/${s.purchaseOrder.id}`} className="text-accent hover:underline">
-                        {s.purchaseOrder.poNumber}
+                    {shipment.purchaseOrder ? (
+                      <Link href={`/purchase-orders/${shipment.purchaseOrder.id}`} className="text-accent hover:underline">
+                        {shipment.purchaseOrder.poNumber}
+                      </Link>
+                    ) : shipment.customerOrder ? (
+                      <Link href={`/sales-orders/${shipment.customerOrder.id}`} className="text-accent hover:underline">
+                        {shipment.customerOrder.soNumber ??
+                          shipment.customerOrder.customerOrderNumber ??
+                          `SO-${shipment.customerOrder.id.slice(0, 8)}`}
                       </Link>
                     ) : (
-                      "—"
+                      "-"
                     )}
                   </Td>
-                  <Td className="text-ink-soft">{s.destWarehouse?.name ?? "—"}</Td>
-                  <Td className="text-ink-soft">{formatDate(s.createdAt)}</Td>
+                  <Td className="text-ink-soft">
+                    {shipment.direction === "OUTBOUND"
+                      ? shipment.originWarehouse?.name ?? "-"
+                      : shipment.purchaseOrder?.supplier?.name ?? "-"}
+                  </Td>
+                  <Td className="text-ink-soft">
+                    {shipment.direction === "OUTBOUND"
+                      ? shipment.customerOrder?.customer?.name ?? "-"
+                      : shipment.destWarehouse?.name ?? "-"}
+                  </Td>
+                  <Td className="text-ink-soft">{formatDate(shipment.createdAt)}</Td>
                   <Td>
-                    <Badge tone={shipmentStatusTone(s.status)}>{formatStatusLabel(s.status)}</Badge>
+                    <Badge tone={shipmentStatusTone(shipment.status)}>{formatStatusLabel(shipment.status)}</Badge>
                   </Td>
                 </Tr>
               ))}
