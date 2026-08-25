@@ -1,18 +1,15 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
-import { Prisma, StockMovementType, withTenant } from "@chainos/database";
+import { Prisma, ReservationStatus, StockMovementType, Tx, withTenant } from "@chainos/database";
 import { AppErrorCode } from "../../common/errors/app-error-code";
 import { BadRequestAppException } from "../../common/errors/app-exception";
 import { claimEvent } from "../../common/events/claim-event";
 import {
   DomainEvent,
-  OrderReadyPayload,
-  OrderReservedPayload,
   PoReceivedPayload,
+  SalesOrderFulfilledPayload,
   StockChangedPayload,
 } from "../../common/events/domain-events";
-
-type Tx = Parameters<Parameters<typeof withTenant>[1]>[0];
 
 interface StockLevelResult {
   quantityOnHand: number;
@@ -21,15 +18,18 @@ interface StockLevelResult {
 
 /**
  * Owns the inventory ledger. This is the only module allowed to write
- * StockLevel/StockMovement rows — everyone else gets there by emitting
- * po.received / order.reserved / order.ready and reacting to stock.changed
- * (manifest §1 "inventory is a ledger" + §2 module table).
+ * StockLevel/StockMovement/InventoryReservation rows — everyone else gets
+ * there by emitting po.received / sales-order.fulfilled and reacting to
+ * stock.changed, OR (reservation only — see docs/adr/0006) by calling
+ * reserveForSalesOrder()/releaseReservationsForSalesOrder() directly,
+ * passing the caller's own transaction (manifest §1 "inventory is a
+ * ledger" + §2 module table).
  *
- * Idempotency: every handler here claims its `eventId` in `ProcessedEvent`
- * inside the same transaction as the ledger write it guards. A duplicate
- * delivery of the same event (retry, at-least-once redelivery) loses the
- * unique-constraint race and no-ops instead of double-applying — see
- * domain-events.ts for the contract this relies on.
+ * Idempotency: every async event handler here claims its `eventId` in
+ * `ProcessedEvent` inside the same transaction as the ledger write it
+ * guards. A duplicate delivery of the same event (retry, at-least-once
+ * redelivery) loses the unique-constraint race and no-ops instead of
+ * double-applying — see domain-events.ts for the contract this relies on.
  */
 @Injectable()
 export class InventoryService {
@@ -67,47 +67,116 @@ export class InventoryService {
     }
   }
 
-  @OnEvent(DomainEvent.OrderReserved)
-  async handleOrderReserved(payload: OrderReservedPayload) {
-    const changes = await withTenant(payload.tenantId, async (tx) => {
-      const claimed = await claimEvent(tx, payload.tenantId, payload.eventId, DomainEvent.OrderReserved);
-      if (!claimed) {
-        this.logger.debug(`order.reserved ${payload.eventId} already processed for order ${payload.customerOrderId} — skipping`);
-        return [];
-      }
+  /**
+   * Reserves stock for one SalesOrderLine — called synchronously, in the
+   * SAME transaction as SalesOrdersService.allocate()'s status update (see
+   * docs/adr/0006-reservation-concurrency-strategy.md for why this is a
+   * direct call, not an async event, unlike every other cross-module
+   * interaction in this codebase). Callers MUST process a multi-line
+   * order's lines sorted by productId to avoid deadlocking against a
+   * concurrent allocation touching the same products in a different order.
+   *
+   * `SELECT ... FOR UPDATE` locks the StockLevel row before the
+   * availability check, closing the read-then-write race the phase 1
+   * `handleOrderReserved` had (a plain `findFirst` + `increment` with no
+   * lock in between). If insufficient, throws — the caller's transaction
+   * rolls back, undoing any reservations already made for earlier lines in
+   * the same allocate() call (true all-or-nothing, no compensation code).
+   */
+  async reserveForSalesOrder(
+    tx: Tx,
+    tenantId: string,
+    args: { salesOrderId: string; salesOrderLineId: string; productId: string; warehouseId: string; quantity: number },
+  ): Promise<StockLevelResult> {
+    const rows = await tx.$queryRaw<Array<{ id: string; quantityOnHand: number; quantityReserved: number }>>`
+      SELECT "id", "quantityOnHand", "quantityReserved" FROM "stock_levels"
+      WHERE "tenantId" = ${tenantId} AND "productId" = ${args.productId} AND "warehouseId" = ${args.warehouseId} AND "locationId" IS NULL
+      FOR UPDATE
+    `;
+    const row = rows[0];
+    const onHand = row?.quantityOnHand ?? 0;
+    const reserved = row?.quantityReserved ?? 0;
+    const available = onHand - reserved;
 
-      const results: Array<{ productId: string; warehouseId: string; level: StockLevelResult }> = [];
-      for (const line of payload.lines) {
-        const current = await tx.stockLevel.findFirst({
-          where: { productId: line.productId, warehouseId: payload.warehouseId, locationId: null },
-        });
-        const available = (current?.quantityOnHand ?? 0) - (current?.quantityReserved ?? 0);
-        if (available < line.qty) {
-          throw new BadRequestAppException(
-            AppErrorCode.INSUFFICIENT_STOCK,
-            `Cannot reserve ${line.qty} of product ${line.productId}: only ${available} available`,
-          );
-        }
-        const level = await this.upsertWarehouseStockLevel(tx, payload.tenantId, line.productId, payload.warehouseId, {
-          update: { quantityReserved: { increment: line.qty } },
-          create: { quantityReserved: line.qty },
-        });
-        results.push({ productId: line.productId, warehouseId: payload.warehouseId, level });
-      }
-      return results;
+    if (available < args.quantity) {
+      throw new BadRequestAppException(
+        AppErrorCode.INVENTORY_INSUFFICIENT_AVAILABLE_STOCK,
+        `Cannot reserve ${args.quantity} of product ${args.productId} at warehouse ${args.warehouseId}: only ${available} available`,
+        { productId: args.productId, warehouseId: args.warehouseId, requested: args.quantity, available },
+      );
+    }
+
+    const level = await tx.stockLevel.update({
+      where: { id: row!.id },
+      data: { quantityReserved: { increment: args.quantity } },
     });
 
-    for (const change of changes) {
-      await this.emitStockChanged(payload.tenantId, change.productId, change.warehouseId, change.level);
-    }
+    await tx.inventoryReservation.create({
+      data: {
+        tenantId,
+        salesOrderId: args.salesOrderId,
+        salesOrderLineId: args.salesOrderLineId,
+        productId: args.productId,
+        warehouseId: args.warehouseId,
+        quantity: args.quantity,
+        status: ReservationStatus.ACTIVE,
+      },
+    });
+
+    return level;
   }
 
-  @OnEvent(DomainEvent.OrderReady)
-  async handleOrderReady(payload: OrderReadyPayload) {
+  /**
+   * Releases every ACTIVE reservation for a SalesOrder — the unfulfilled
+   * remainder only (`quantity - fulfilledQuantity`), so a partial
+   * cancellation after a partial fulfillment keeps the fulfilled portion's
+   * history intact (see docs/adr/0007). No StockMovement is created —
+   * releasing a reservation is not a physical movement. Safe without a row
+   * lock: the decrement amount is derived from the reservation row itself,
+   * not from re-reading and reasoning about the current StockLevel value,
+   * so there's no read-then-decide window to race (see ADR 0006).
+   */
+  async releaseReservationsForSalesOrder(
+    tx: Tx,
+    tenantId: string,
+    salesOrderId: string,
+  ): Promise<Array<{ productId: string; warehouseId: string; level: StockLevelResult }>> {
+    const reservations = await tx.inventoryReservation.findMany({
+      where: { tenantId, salesOrderId, status: ReservationStatus.ACTIVE },
+    });
+
+    const results: Array<{ productId: string; warehouseId: string; level: StockLevelResult }> = [];
+    for (const reservation of reservations) {
+      const remaining = reservation.quantity - reservation.fulfilledQuantity;
+      if (remaining > 0) {
+        const level = await this.upsertWarehouseStockLevel(tx, tenantId, reservation.productId, reservation.warehouseId, {
+          update: { quantityReserved: { decrement: remaining } },
+          create: {},
+        });
+        results.push({ productId: reservation.productId, warehouseId: reservation.warehouseId, level });
+      }
+      await tx.inventoryReservation.update({
+        where: { id: reservation.id },
+        data: { status: ReservationStatus.CANCELLED, releasedAt: new Date() },
+      });
+    }
+    return results;
+  }
+
+  /**
+   * Applies fulfillment deltas that SalesOrdersService.fulfill() already
+   * validated and committed against SalesOrderLine.qtyReserved/qtyFulfilled
+   * (see docs/adr/0007) — this handler's only job is posting the ledger
+   * movement and updating the matching InventoryReservation, exactly once
+   * per eventId. Over-fulfillment is not re-checked here: it was already
+   * proven legal atomically before this event was even emitted.
+   */
+  @OnEvent(DomainEvent.SalesOrderFulfilled)
+  async handleSalesOrderFulfilled(payload: SalesOrderFulfilledPayload) {
     const changes = await withTenant(payload.tenantId, async (tx) => {
-      const claimed = await claimEvent(tx, payload.tenantId, payload.eventId, DomainEvent.OrderReady);
+      const claimed = await claimEvent(tx, payload.tenantId, payload.eventId, DomainEvent.SalesOrderFulfilled);
       if (!claimed) {
-        this.logger.debug(`order.ready ${payload.eventId} already processed for order ${payload.customerOrderId} — skipping`);
+        this.logger.debug(`sales-order.fulfilled ${payload.eventId} already processed for order ${payload.salesOrderId} — skipping`);
         return [];
       }
 
@@ -118,9 +187,21 @@ export class InventoryService {
           warehouseId: payload.warehouseId,
           type: StockMovementType.FULFILLMENT,
           quantityDelta: -line.qty,
-          customerOrderLineId: line.customerOrderLineId,
+          salesOrderLineId: line.salesOrderLineId,
           releaseReservedQty: line.qty,
         });
+
+        const reservation = await tx.inventoryReservation.update({
+          where: { salesOrderLineId: line.salesOrderLineId },
+          data: { fulfilledQuantity: { increment: line.qty } },
+        });
+        if (reservation.fulfilledQuantity >= reservation.quantity) {
+          await tx.inventoryReservation.update({
+            where: { id: reservation.id },
+            data: { status: ReservationStatus.FULFILLED },
+          });
+        }
+
         results.push({ productId: line.productId, warehouseId: payload.warehouseId, level });
       }
       return results;
@@ -171,7 +252,7 @@ export class InventoryService {
       quantityDelta: number;
       purchaseOrderLineId?: string;
       goodsReceiptLineId?: string;
-      customerOrderLineId?: string;
+      salesOrderLineId?: string;
       releaseReservedQty?: number;
     },
   ): Promise<StockLevelResult> {
@@ -184,7 +265,7 @@ export class InventoryService {
         quantityDelta: args.quantityDelta,
         purchaseOrderLineId: args.purchaseOrderLineId,
         goodsReceiptLineId: args.goodsReceiptLineId,
-        customerOrderLineId: args.customerOrderLineId,
+        salesOrderLineId: args.salesOrderLineId,
       },
     });
 
@@ -233,12 +314,8 @@ export class InventoryService {
     }
   }
 
-  private async emitStockChanged(
-    tenantId: string,
-    productId: string,
-    warehouseId: string,
-    level: StockLevelResult,
-  ) {
+  /** Public so callers that change reservation state outside an async event (e.g. SalesOrdersService) can notify observers after their own transaction commits. */
+  async emitStockChanged(tenantId: string, productId: string, warehouseId: string, level: StockLevelResult) {
     const payload: StockChangedPayload = {
       tenantId,
       productId,

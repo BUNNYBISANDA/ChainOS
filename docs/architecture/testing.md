@@ -80,6 +80,40 @@ slice through the real HTTP API, the way the frontend does:
 - A user with `po:receive` but not `po:approve` gets 403 attempting to
   approve — the permission split is real, not just documented.
 
+### Sales order lifecycle (phase 2)
+
+`sales-order-lifecycle.integration-spec.ts` drives the whole outbound
+slice through the real HTTP API: create → confirm → allocate → partial
+fulfill → full fulfill (asserting on-hand/reserved/available at every
+step via the shared `getStockReconciliation()` helper, and the ledger's
+outbound total), insufficient-stock allocation (rejected, zero
+reservation rows left behind), full cancellation before fulfillment (full
+release, no movement created), partial cancellation after a partial
+fulfillment (only the unfulfilled remainder released, the historical
+movement untouched), over-fulfillment (rejected atomically), and a
+Procurement Manager permission-boundary check mirroring phase 1's
+Warehouse Manager one. See
+[ADR 0006](../adr/0006-reservation-concurrency-strategy.md)/
+[0007](../adr/0007-outbound-fulfillment-semantics.md).
+
+### Reservation concurrency (phase 2)
+
+`inventory-reservation-concurrency.integration-spec.ts` — the mandatory
+concurrency-safety test. Two (and separately, three) sales orders
+allocate concurrently against a fixed pool of stock; asserts exactly the
+number of requests the stock can afford succeed, the rest fail with
+`INVENTORY_INSUFFICIENT_AVAILABLE_STOCK`, and
+`StockLevel.quantityReserved` never exceeds `quantityOnHand`. Structured
+like `inventory-idempotency.integration-spec.ts`'s concurrent-call tests
+(`Promise.all` against real Postgres), but exercising the `SELECT ... FOR
+UPDATE` lock in `InventoryService.reserveForSalesOrder` instead of the
+idempotency claim — see [ADR 0006](../adr/0006-reservation-concurrency-strategy.md).
+
+`inventory-idempotency.integration-spec.ts` also gained a
+`sales-order.fulfilled` case, structured identically to its existing
+`po.received` one: replaying the same fulfillment `eventId` sequentially
+and concurrently applies the stock delta exactly once each time.
+
 ## What CI runs, and why it's not just "your DATABASE_URL"
 
 CI provisions a real non-superuser `chainos_app` Postgres role (see

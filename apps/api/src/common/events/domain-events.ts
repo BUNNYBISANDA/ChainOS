@@ -19,8 +19,8 @@ export enum DomainEvent {
   PoReceived = "po.received",
   StockChanged = "stock.changed",
   StockLow = "stock.low",
-  OrderReserved = "order.reserved",
-  OrderReady = "order.ready",
+  SalesOrderAllocated = "sales-order.allocated",
+  SalesOrderFulfilled = "sales-order.fulfilled",
   ShipmentCreated = "shipment.created",
   ShipmentDispatched = "shipment.dispatched",
   ShipmentDelivered = "shipment.delivered",
@@ -55,20 +55,32 @@ export interface PoReceivedPayload {
   }>;
 }
 
-export interface OrderReservedPayload {
+/**
+ * Broadcast-only (see docs/adr/0006-reservation-concurrency-strategy.md) —
+ * emitted after SalesOrdersService.allocate()'s transaction commits, for
+ * observers. Reservation itself is a synchronous, same-transaction call
+ * into InventoryService.reserveForSalesOrder(), not driven by this event.
+ */
+export interface SalesOrderAllocatedPayload {
   eventId: string;
   tenantId: string;
-  customerOrderId: string;
+  salesOrderId: string;
   warehouseId: string;
-  lines: Array<{ customerOrderLineId: string; productId: string; qty: number }>;
+  lines: Array<{ salesOrderLineId: string; productId: string; qty: number }>;
 }
 
-export interface OrderReadyPayload {
+/**
+ * Drives the actual ledger write (see docs/adr/0007-outbound-fulfillment-semantics.md)
+ * — InventoryService.handleSalesOrderFulfilled posts the negative
+ * StockMovement(s) this describes. `eventId` is claimed via the existing
+ * claimEvent() idempotency guard, same as po.received.
+ */
+export interface SalesOrderFulfilledPayload {
   eventId: string;
   tenantId: string;
-  customerOrderId: string;
+  salesOrderId: string;
   warehouseId: string;
-  lines: Array<{ customerOrderLineId: string; productId: string; qty: number }>;
+  lines: Array<{ salesOrderLineId: string; productId: string; qty: number }>;
 }
 
 export interface StockChangedPayload {
@@ -90,12 +102,12 @@ export interface ShipmentCreatedPayload {
   tenantId: string;
   shipmentId: string;
   purchaseOrderId?: string;
-  customerOrderId?: string;
+  salesOrderId?: string;
 }
 
 export interface ShipmentDeliveredPayload {
   tenantId: string;
   shipmentId: string;
   purchaseOrderId?: string;
-  customerOrderId?: string;
+  salesOrderId?: string;
 }

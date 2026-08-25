@@ -1,16 +1,20 @@
 import { Module } from "@nestjs/common";
+import { InventoryModule } from "../inventory/inventory.module";
 import { CustomersController } from "./customers.controller";
 import { CustomersService } from "./customers.service";
-import { CustomerOrdersController } from "./customer-orders.controller";
-import { CustomerOrdersService } from "./customer-orders.service";
+import { SalesOrdersController } from "./sales-orders.controller";
+import { SalesOrdersService } from "./sales-orders.service";
 
 /**
- * Owns: customer orders, order lines, reservations (manifest §2).
- * Publishes order.reserved, order.ready. Subscribes to stock.changed,
- * shipment.delivered — see CustomerOrdersService.
+ * Owns: customers, sales orders, sales order lines (manifest, phase 2
+ * outbound slice). Publishes sales-order.allocated, sales-order.fulfilled.
+ * Imports InventoryModule to call reserveForSalesOrder()/
+ * releaseReservationsForSalesOrder() directly, in the same transaction —
+ * see docs/adr/0006-reservation-concurrency-strategy.md.
  */
 @Module({
-  controllers: [CustomersController, CustomerOrdersController],
-  providers: [CustomersService, CustomerOrdersService],
+  imports: [InventoryModule],
+  controllers: [CustomersController, SalesOrdersController],
+  providers: [CustomersService, SalesOrdersService],
 })
 export class FulfillmentModule {}

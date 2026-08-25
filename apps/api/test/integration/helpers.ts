@@ -3,23 +3,25 @@ import * as bcrypt from "bcryptjs";
 import { INestApplication, ValidationPipe } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
-import { PurchaseOrderStatus, prisma, withTenant } from "@chainos/database";
+import { PurchaseOrderStatus, SalesOrderStatus, prisma, withTenant } from "@chainos/database";
 import { AppModule } from "../../src/app.module";
 import { AllExceptionsFilter } from "../../src/common/errors/http-exception.filter";
 
 export const TEST_PASSWORD = "TestPass123!";
 
-const ALL_PERMISSIONS = [
+export const ALL_PERMISSIONS = [
   "catalog:write",
   "procurement:write",
   "po:create",
   "po:approve",
   "po:receive",
   "inventory:write",
-  "fulfillment:write",
-  "order:create",
-  "order:reserve",
-  "order:ready",
+  "customer:write",
+  "sales-order:create",
+  "sales-order:confirm",
+  "sales-order:cancel",
+  "sales-order:allocate",
+  "sales-order:fulfill",
   "shipment:create",
   "shipment:update",
 ];
@@ -105,6 +107,58 @@ export function seedPurchaseOrder(
   );
 }
 
+export function seedCustomer(tenantId: string, companyName: string) {
+  const customerCode = `CUS-${randomUUID().slice(0, 8)}`;
+  return withTenant(tenantId, (tx) => tx.customer.create({ data: { tenantId, customerCode, companyName } }));
+}
+
+/** Defaults to DRAFT — tests that need ALLOCATED/PARTIALLY_FULFILLED drive it there through the real confirm/allocate/fulfill endpoints so InventoryReservation/StockLevel side effects stay correct, rather than faking that state directly. */
+export function seedSalesOrder(
+  tenantId: string,
+  customerId: string,
+  warehouseId: string,
+  productId: string,
+  qty: number,
+  unitPrice = "20.00",
+  status: SalesOrderStatus = SalesOrderStatus.DRAFT,
+) {
+  const orderNumber = `SO-TEST-${randomUUID().slice(0, 8)}`;
+  return withTenant(tenantId, (tx) =>
+    tx.salesOrder.create({
+      data: {
+        tenantId,
+        orderNumber,
+        customerId,
+        warehouseId,
+        status,
+        lines: { create: [{ tenantId, productId, qtyOrdered: qty, unitPrice }] },
+      },
+      include: { lines: true },
+    }),
+  );
+}
+
+/**
+ * The invariant every phase 2 test scenario must hold (spec §19):
+ * StockLevel.quantityOnHand must equal the sum of every physical
+ * StockMovement quantityDelta for that product+warehouse (reservation
+ * never creates a movement, so this holds through allocate/cancel too,
+ * not just through fulfillment), and available is always onHand -
+ * reserved by construction. Returns raw numbers — call sites assert with
+ * their own `expect(...)`, same convention as `stockOnHand()` in
+ * purchase-order-lifecycle.integration-spec.ts.
+ */
+export async function getStockReconciliation(tenantId: string, productId: string, warehouseId: string) {
+  return withTenant(tenantId, async (tx) => {
+    const level = await tx.stockLevel.findFirst({ where: { productId, warehouseId, locationId: null } });
+    const movements = await tx.stockMovement.findMany({ where: { productId, warehouseId } });
+    const movementSum = movements.reduce((sum, m) => sum + m.quantityDelta, 0);
+    const onHand = level?.quantityOnHand ?? 0;
+    const reserved = level?.quantityReserved ?? 0;
+    return { onHand, reserved, available: onHand - reserved, movementSum };
+  });
+}
+
 /**
  * True only if the connected DB role is actually subject to RLS (not a
  * superuser and not BYPASSRLS — both silently no-op every policy). Tests
@@ -127,9 +181,7 @@ export async function cleanupTestTenant(tenantId: string): Promise<void> {
   await withTenant(tenantId, async (tx) => {
     await tx.shipmentEvent.deleteMany({ where: { tenantId } });
     await tx.shipment.deleteMany({ where: { tenantId } });
-    await tx.customerOrderLine.deleteMany({ where: { tenantId } });
-    await tx.customerOrder.deleteMany({ where: { tenantId } });
-    await tx.customer.deleteMany({ where: { tenantId } });
+    await tx.inventoryReservation.deleteMany({ where: { tenantId } });
     await tx.stockMovement.deleteMany({ where: { tenantId } });
     await tx.stockLevel.deleteMany({ where: { tenantId } });
     await tx.location.deleteMany({ where: { tenantId } });
@@ -137,6 +189,9 @@ export async function cleanupTestTenant(tenantId: string): Promise<void> {
     await tx.goodsReceipt.deleteMany({ where: { tenantId } });
     await tx.purchaseOrderLine.deleteMany({ where: { tenantId } });
     await tx.purchaseOrder.deleteMany({ where: { tenantId } });
+    await tx.salesOrderLine.deleteMany({ where: { tenantId } });
+    await tx.salesOrder.deleteMany({ where: { tenantId } });
+    await tx.customer.deleteMany({ where: { tenantId } });
     await tx.supplierProduct.deleteMany({ where: { tenantId } });
     await tx.supplier.deleteMany({ where: { tenantId } });
     await tx.product.deleteMany({ where: { tenantId } });

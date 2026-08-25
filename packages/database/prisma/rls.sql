@@ -16,8 +16,8 @@ BEGIN
     SELECT unnest(ARRAY[
       'users', 'roles', 'products', 'suppliers', 'supplier_products',
       'purchase_orders', 'purchase_order_lines', 'warehouses', 'locations',
-      'stock_levels', 'stock_movements', 'customers', 'customer_orders',
-      'customer_order_lines', 'shipments', 'shipment_events',
+      'stock_levels', 'stock_movements', 'customers', 'sales_orders',
+      'sales_order_lines', 'inventory_reservations', 'shipments', 'shipment_events',
       'refresh_tokens', 'processed_events', 'goods_receipts',
       'goods_receipt_lines', 'number_sequences', 'audit_logs'
     ])

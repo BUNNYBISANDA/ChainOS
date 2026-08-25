@@ -30,16 +30,17 @@ model Tenant {
   slug      String   @unique
   createdAt DateTime @default(now())
 
-  users            User[]
-  suppliers        Supplier[]
-  products         Product[]
-  warehouses       Warehouse[]
-  customers        Customer[]
-  purchaseOrders   PurchaseOrder[]
-  customerOrders   CustomerOrder[]
-  shipments        Shipment[]
-  stockLevels      StockLevel[]
-  stockMovements   StockMovement[]
+  users                 User[]
+  suppliers             Supplier[]
+  products              Product[]
+  warehouses            Warehouse[]
+  customers             Customer[]
+  purchaseOrders        PurchaseOrder[]
+  salesOrders           SalesOrder[]
+  shipments             Shipment[]
+  stockLevels           StockLevel[]
+  stockMovements        StockMovement[]
+  inventoryReservations InventoryReservation[]
 
   @@map("tenants")
 }
@@ -115,13 +116,14 @@ model Product {
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
 
-  tenant             Tenant              @relation(fields: [tenantId], references: [id])
-  supplierProducts    SupplierProduct[]
-  purchaseOrderLines  PurchaseOrderLine[]
-  customerOrderLines  CustomerOrderLine[]
-  goodsReceiptLines   GoodsReceiptLine[]
-  stockLevels         StockLevel[]
-  stockMovements      StockMovement[]
+  tenant                Tenant                  @relation(fields: [tenantId], references: [id])
+  supplierProducts      SupplierProduct[]
+  purchaseOrderLines    PurchaseOrderLine[]
+  salesOrderLines       SalesOrderLine[]
+  goodsReceiptLines     GoodsReceiptLine[]
+  stockLevels           StockLevel[]
+  stockMovements        StockMovement[]
+  inventoryReservations InventoryReservation[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -344,15 +346,16 @@ model Warehouse {
   status    WarehouseStatus @default(ACTIVE)
   createdAt DateTime        @default(now())
 
-  tenant           Tenant          @relation(fields: [tenantId], references: [id])
-  locations        Location[]
-  purchaseOrders   PurchaseOrder[]
-  customerOrders   CustomerOrder[]
-  goodsReceipts    GoodsReceipt[]
-  stockLevels      StockLevel[]
-  stockMovements   StockMovement[]
-  outboundShipments Shipment[]     @relation("OutboundWarehouse")
-  inboundShipments  Shipment[]     @relation("InboundWarehouse")
+  tenant                Tenant                  @relation(fields: [tenantId], references: [id])
+  locations             Location[]
+  purchaseOrders        PurchaseOrder[]
+  salesOrders           SalesOrder[]
+  goodsReceipts         GoodsReceipt[]
+  stockLevels           StockLevel[]
+  stockMovements        StockMovement[]
+  inventoryReservations InventoryReservation[]
+  outboundShipments     Shipment[]              @relation("OutboundWarehouse")
+  inboundShipments      Shipment[]              @relation("InboundWarehouse")
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -415,7 +418,7 @@ model StockMovement {
   quantityDelta       Int
   purchaseOrderLineId String?
   goodsReceiptLineId  String?
-  customerOrderLineId String?
+  salesOrderLineId    String?
   note                String?
   createdByUserId     String?
   createdAt           DateTime          @default(now())
@@ -425,7 +428,7 @@ model StockMovement {
   warehouse         Warehouse          @relation(fields: [warehouseId], references: [id])
   purchaseOrderLine PurchaseOrderLine? @relation(fields: [purchaseOrderLineId], references: [id])
   goodsReceiptLine  GoodsReceiptLine?  @relation(fields: [goodsReceiptLineId], references: [id])
-  customerOrderLine CustomerOrderLine? @relation(fields: [customerOrderLineId], references: [id])
+  salesOrderLine    SalesOrderLine?    @relation(fields: [salesOrderLineId], references: [id])
 
   @@index([tenantId])
   @@index([productId, warehouseId])
@@ -436,61 +439,139 @@ model StockMovement {
 // Fulfillment
 // ---------------------------------------------------------------------------
 
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
 model Customer {
-  id        String   @id @default(uuid())
-  tenantId  String
-  name      String
-  email     String?
-  createdAt DateTime @default(now())
+  id           String         @id @default(uuid())
+  tenantId     String
+  customerCode String
+  companyName  String
+  contactName  String?
+  email        String?
+  phone        String?
+  address      String?
+  city         String?
+  province     String?
+  country      String?
+  status       CustomerStatus @default(ACTIVE)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 
-  tenant         Tenant          @relation(fields: [tenantId], references: [id])
-  customerOrders CustomerOrder[]
+  tenant            Tenant     @relation(fields: [tenantId], references: [id])
+  salesOrders       SalesOrder[]
+  outboundShipments Shipment[] @relation("OutboundCustomer")
 
+  @@unique([tenantId, customerCode])
   @@index([tenantId])
   @@map("customers")
 }
 
-enum CustomerOrderStatus {
+// Explicit lifecycle (phase 2 outbound slice — see
+// docs/adr/0005-inventory-reservation-model.md). CONFIRMED = commercial
+// acceptance; ALLOCATED = inventory reservation succeeded (never set
+// without a successful reservation — see SalesOrdersService.allocate()).
+// Deliberately has no SHIPPED/DELIVERED member: physical fulfillment is
+// driven by explicit fulfill() calls, decoupled from Shipment tracking
+// (a SalesOrder can only ever have one linked Shipment, but fulfillment
+// can happen in multiple partial calls — see ADR 0007).
+enum SalesOrderStatus {
   DRAFT
-  RESERVED
-  READY_TO_SHIP
-  SHIPPED
-  DELIVERED
+  CONFIRMED
+  ALLOCATED
+  PARTIALLY_FULFILLED
+  FULFILLED
   CANCELLED
 }
 
-model CustomerOrder {
-  id          String              @id @default(uuid())
-  tenantId    String
-  customerId  String
-  warehouseId String
-  status      CustomerOrderStatus @default(DRAFT)
-  createdAt   DateTime            @default(now())
+model SalesOrder {
+  id                    String           @id @default(uuid())
+  tenantId              String
+  orderNumber           String
+  customerId            String
+  warehouseId           String
+  orderDate             DateTime         @default(now())
+  requestedDeliveryDate DateTime?
+  currency              String           @default("THB")
+  status                SalesOrderStatus @default(DRAFT)
+  notes                 String?
+  createdByUserId       String?
+  confirmedByUserId     String?
+  confirmedAt           DateTime?
+  cancelledAt           DateTime?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
 
-  tenant    Tenant              @relation(fields: [tenantId], references: [id])
-  customer  Customer            @relation(fields: [customerId], references: [id])
-  warehouse Warehouse           @relation(fields: [warehouseId], references: [id])
-  lines     CustomerOrderLine[]
-  shipment  Shipment?
+  tenant       Tenant                  @relation(fields: [tenantId], references: [id])
+  customer     Customer                @relation(fields: [customerId], references: [id])
+  warehouse    Warehouse               @relation(fields: [warehouseId], references: [id])
+  lines        SalesOrderLine[]
+  reservations InventoryReservation[]
+  shipment     Shipment?
 
+  @@unique([tenantId, orderNumber])
   @@index([tenantId])
-  @@map("customer_orders")
+  @@map("sales_orders")
 }
 
-model CustomerOrderLine {
-  id              String @id @default(uuid())
-  tenantId        String
-  customerOrderId String
-  productId       String
-  qtyOrdered      Int
-  qtyFulfilled    Int    @default(0)
+model SalesOrderLine {
+  id           String  @id @default(uuid())
+  tenantId     String
+  salesOrderId String
+  productId    String
+  qtyOrdered   Int
+  qtyReserved  Int     @default(0)
+  qtyFulfilled Int     @default(0)
+  unitPrice    Decimal @db.Decimal(12, 2)
 
-  customerOrder  CustomerOrder   @relation(fields: [customerOrderId], references: [id])
-  product        Product         @relation(fields: [productId], references: [id])
+  salesOrder     SalesOrder             @relation(fields: [salesOrderId], references: [id])
+  product        Product                @relation(fields: [productId], references: [id])
+  reservation    InventoryReservation?
   stockMovements StockMovement[]
 
   @@index([tenantId])
-  @@map("customer_order_lines")
+  @@map("sales_order_lines")
+}
+
+// Durable reservation model — a commitment against StockLevel.quantityReserved,
+// NOT a physical StockMovement (see ADR 0005). One row per SalesOrderLine,
+// created atomically by InventoryService.reserveForSalesOrder() under a
+// row lock (see ADR 0006). `quantity` is fixed at allocation time;
+// `fulfilledQuantity` is incremented as fulfillment posts against it;
+// `status` moves ACTIVE -> FULFILLED (fully consumed) or ACTIVE ->
+// CANCELLED (released, un-fulfilled remainder only — see
+// InventoryService.releaseReservationsForSalesOrder()).
+enum ReservationStatus {
+  ACTIVE
+  FULFILLED
+  CANCELLED
+}
+
+model InventoryReservation {
+  id                String            @id @default(uuid())
+  tenantId          String
+  salesOrderId      String
+  salesOrderLineId  String            @unique
+  productId         String
+  warehouseId       String
+  quantity          Int
+  fulfilledQuantity Int               @default(0)
+  status            ReservationStatus @default(ACTIVE)
+  createdAt         DateTime          @default(now())
+  releasedAt        DateTime?
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id])
+  salesOrder     SalesOrder     @relation(fields: [salesOrderId], references: [id])
+  salesOrderLine SalesOrderLine @relation(fields: [salesOrderLineId], references: [id])
+  product        Product        @relation(fields: [productId], references: [id])
+  warehouse      Warehouse      @relation(fields: [warehouseId], references: [id])
+
+  @@index([tenantId])
+  @@index([productId, warehouseId])
+  @@map("inventory_reservations")
 }
 
 // ---------------------------------------------------------------------------
@@ -516,10 +597,11 @@ enum ShipmentStatus {
 }
 
 // One entity for both legs (see manifest §1): inbound ties to a
-// PurchaseOrder + origin supplier, outbound ties to a CustomerOrder +
-// destination customer. v1 tracking is manual (status set by hand);
-// `carrier` / `trackingNumber` are captured for reference only until a
-// carrier integration lands.
+// PurchaseOrder + origin supplier, outbound ties to a SalesOrder +
+// destination customer (destCustomerId, derived server-side from the
+// SalesOrder — see ShipmentsService.create()). v1 tracking is manual
+// (status set by hand); `carrier` / `trackingNumber` are captured for
+// reference only until a carrier integration lands.
 model Shipment {
   id                String            @id @default(uuid())
   tenantId          String
@@ -527,19 +609,21 @@ model Shipment {
   direction         ShipmentDirection
   status            ShipmentStatus    @default(CREATED)
   purchaseOrderId   String?           @unique
-  customerOrderId   String?           @unique
+  salesOrderId      String?           @unique
   originWarehouseId String?
   destWarehouseId   String?
+  destCustomerId    String?
   carrier           String?
   trackingNumber    String?
   createdAt         DateTime          @default(now())
 
-  tenant        Tenant         @relation(fields: [tenantId], references: [id])
-  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
-  customerOrder CustomerOrder? @relation(fields: [customerOrderId], references: [id])
-  originWarehouse Warehouse?   @relation("InboundWarehouse", fields: [originWarehouseId], references: [id])
-  destWarehouse   Warehouse?   @relation("OutboundWarehouse", fields: [destWarehouseId], references: [id])
-  events        ShipmentEvent[]
+  tenant          Tenant         @relation(fields: [tenantId], references: [id])
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  salesOrder      SalesOrder?    @relation(fields: [salesOrderId], references: [id])
+  originWarehouse Warehouse?     @relation("InboundWarehouse", fields: [originWarehouseId], references: [id])
+  destWarehouse   Warehouse?     @relation("OutboundWarehouse", fields: [destWarehouseId], references: [id])
+  destCustomer    Customer?      @relation("OutboundCustomer", fields: [destCustomerId], references: [id])
+  events          ShipmentEvent[]
 
   @@unique([tenantId, shipmentNumber])
   @@index([tenantId])

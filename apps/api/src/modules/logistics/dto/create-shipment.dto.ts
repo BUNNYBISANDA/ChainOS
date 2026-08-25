@@ -10,19 +10,10 @@ export class CreateShipmentDto {
   @IsUUID()
   purchaseOrderId?: string;
 
-  /** Required for OUTBOUND. */
+  /** Required for OUTBOUND — originWarehouseId/destCustomerId are derived from the SalesOrder server-side, not supplied by the client. */
   @IsOptional()
   @IsUUID()
-  customerOrderId?: string;
-
-  /** OUTBOUND only — the warehouse stock ships from. Ignored for INBOUND (derived from the PO). */
-  @IsOptional()
-  @IsUUID()
-  originWarehouseId?: string;
-
-  @IsOptional()
-  @IsUUID()
-  destWarehouseId?: string;
+  salesOrderId?: string;
 
   @IsOptional()
   @IsString()

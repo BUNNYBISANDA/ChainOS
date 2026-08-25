@@ -9,6 +9,7 @@ import {
   createTestTenant,
   isRlsEnforced,
   loginTestTenant,
+  seedCustomer,
   seedPurchaseOrder,
   seedSupplier,
   seedWarehouse,
@@ -20,12 +21,16 @@ describe("Tenant isolation", () => {
   let tenantA: TestTenant;
   let tenantB: TestTenant;
   let tokenA: string;
+  let tokenB: string;
   let supplierA: { id: string; name: string };
   let supplierB: { id: string; name: string };
   let warehouseB: { id: string; name: string };
   let productB: { id: string; sku: string };
   let poB: { id: string; lines: Array<{ id: string }> };
   let shipmentB: { id: string };
+  let customerB: { id: string; customerCode: string };
+  let salesOrderB: { id: string; lines: Array<{ id: string }> };
+  let outboundShipmentB: { id: string };
   let rlsEnforced: boolean;
 
   beforeAll(async () => {
@@ -43,7 +48,7 @@ describe("Tenant isolation", () => {
     tenantA = await createTestTenant("iso-a");
     tenantB = await createTestTenant("iso-b");
     tokenA = await loginTestTenant(app, tenantA);
-    const tokenB = await loginTestTenant(app, tenantB);
+    tokenB = await loginTestTenant(app, tenantB);
 
     supplierA = await seedSupplier(tenantA.tenantId, "Tenant A Supplier");
     supplierB = await seedSupplier(tenantB.tenantId, "Tenant B Supplier");
@@ -65,6 +70,23 @@ describe("Tenant isolation", () => {
       .set("Authorization", `Bearer ${tokenB}`)
       .send({ lines: [{ purchaseOrderLineId: poB.lines[0].id, qtyReceived: 20 }] })
       .expect(201);
+
+    customerB = await seedCustomer(tenantB.tenantId, "Tenant B Customer");
+    const createSalesOrder = await request(app.getHttpServer())
+      .post("/sales-orders")
+      .set("Authorization", `Bearer ${tokenB}`)
+      .send({ customerId: customerB.id, warehouseId: warehouseB.id, lines: [{ productId: productB.id, qtyOrdered: 5, unitPrice: 10 }] })
+      .expect(201);
+    salesOrderB = createSalesOrder.body;
+    await request(app.getHttpServer()).post(`/sales-orders/${salesOrderB.id}/confirm`).set("Authorization", `Bearer ${tokenB}`).expect(201);
+    await request(app.getHttpServer()).post(`/sales-orders/${salesOrderB.id}/allocate`).set("Authorization", `Bearer ${tokenB}`).expect(201);
+
+    const outboundShipmentRes = await request(app.getHttpServer())
+      .post("/shipments")
+      .set("Authorization", `Bearer ${tokenB}`)
+      .send({ direction: "OUTBOUND", salesOrderId: salesOrderB.id })
+      .expect(201);
+    outboundShipmentB = outboundShipmentRes.body;
   }, 30000);
 
   afterAll(async () => {
@@ -193,6 +215,81 @@ describe("Tenant isolation", () => {
         .set("Authorization", `Bearer ${tokenA}`)
         .expect(200);
       expect(movements.body).toHaveLength(0);
+    });
+  });
+
+  describe("phase 2 entities: customers, sales orders, reservations, outbound shipments", () => {
+    it("Tenant A's customer/sales-order lists exclude Tenant B's rows", async () => {
+      const customers = await request(app.getHttpServer())
+        .get("/customers")
+        .set("Authorization", `Bearer ${tokenA}`)
+        .expect(200);
+      expect(customers.body.map((c: { id: string }) => c.id)).not.toContain(customerB.id);
+
+      const salesOrders = await request(app.getHttpServer())
+        .get("/sales-orders")
+        .set("Authorization", `Bearer ${tokenA}`)
+        .expect(200);
+      expect(salesOrders.body.map((s: { id: string }) => s.id)).not.toContain(salesOrderB.id);
+    });
+
+    it("Tenant A gets 404 for Tenant B's customer/sales-order/outbound-shipment by id", async () => {
+      await request(app.getHttpServer()).get(`/customers/${customerB.id}`).set("Authorization", `Bearer ${tokenA}`).expect(404);
+      await request(app.getHttpServer()).get(`/sales-orders/${salesOrderB.id}`).set("Authorization", `Bearer ${tokenA}`).expect(404);
+      await request(app.getHttpServer()).get(`/shipments/${outboundShipmentB.id}`).set("Authorization", `Bearer ${tokenA}`).expect(404);
+    });
+
+    it("Tenant A cannot create a sales order referencing Tenant B's customerId or warehouseId (cross-tenant FK, blocked by RLS not application code)", async () => {
+      if (!rlsEnforced) return;
+      // Neither SalesOrdersService nor PurchaseOrdersService validates
+      // cross-tenant FKs explicitly — both rely on RLS making the
+      // referenced row invisible to the FK check itself, the same way
+      // phase 1 already relies on RLS alone for supplierId/warehouseId
+      // (see docs/architecture/rls.md). This proves that reliance is
+      // actually safe for the phase 2 entities, not just assumed.
+      const productA = await seedProduct(tenantA.tenantId, "SKU-CROSS-TENANT-1", "Cross Tenant Test Product");
+      await request(app.getHttpServer())
+        .post("/sales-orders")
+        .set("Authorization", `Bearer ${tokenA}`)
+        .send({ customerId: customerB.id, warehouseId: warehouseB.id, lines: [{ productId: productA.id, qtyOrdered: 1, unitPrice: 1 }] })
+        .expect(500); // FK violation surfaces as a safe 500, never a silent 201 against another tenant's row
+    });
+
+    it("Tenant A cannot allocate, cancel, or fulfill Tenant B's sales order", async () => {
+      await request(app.getHttpServer())
+        .post(`/sales-orders/${salesOrderB.id}/allocate`)
+        .set("Authorization", `Bearer ${tokenA}`)
+        .expect(404);
+      await request(app.getHttpServer())
+        .post(`/sales-orders/${salesOrderB.id}/cancel`)
+        .set("Authorization", `Bearer ${tokenA}`)
+        .expect(404);
+      await request(app.getHttpServer())
+        .post(`/sales-orders/${salesOrderB.id}/fulfill`)
+        .set("Authorization", `Bearer ${tokenA}`)
+        .send({ lines: [{ salesOrderLineId: salesOrderB.lines[0].id, qty: 1 }] })
+        .expect(404);
+    });
+
+    it("cannot reach Tenant B's InventoryReservation through Prisma/RLS while scoped to Tenant A", async () => {
+      if (!rlsEnforced) return;
+      const found = await withTenant(tenantA.tenantId, (tx) =>
+        tx.inventoryReservation.findFirst({ where: { salesOrderId: salesOrderB.id } }),
+      );
+      expect(found).toBeNull();
+    });
+
+    it("positive control: Tenant B can still read its own sales order and reservation", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/sales-orders/${salesOrderB.id}`)
+        .set("Authorization", `Bearer ${tokenB}`)
+        .expect(200);
+      expect(res.body.status).toBe("ALLOCATED");
+
+      const reservation = await withTenant(tenantB.tenantId, (tx) =>
+        tx.inventoryReservation.findFirst({ where: { salesOrderId: salesOrderB.id } }),
+      );
+      expect(reservation?.quantity).toBe(5);
     });
   });
 });

@@ -1,6 +1,4 @@
-import { Prisma, withTenant } from "@chainos/database";
-
-type Tx = Parameters<Parameters<typeof withTenant>[1]>[0];
+import { Prisma, Tx } from "@chainos/database";
 
 /**
  * Inserts the (tenantId, eventId) claim row used to make a cross-module
