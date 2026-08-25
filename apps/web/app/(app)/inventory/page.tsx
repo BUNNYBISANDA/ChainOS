@@ -80,8 +80,10 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
               </Tr>
             </Thead>
             <Tbody>
-              {levels.map((level) => (
-                <Tr key={level.id}>
+              {levels.map((level) => {
+                const available = level.quantityOnHand - level.quantityReserved;
+                return (
+                <Tr key={level.id} className={available === 0 ? "bg-warning/5" : undefined}>
                   <Td className="font-mono text-xs text-ink-soft">{level.product.sku}</Td>
                   <Td>
                     <Link
@@ -94,9 +96,10 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                   <Td className="text-ink-soft">{level.warehouse.name}</Td>
                   <Td className="text-right">{formatNumber(level.quantityOnHand)}</Td>
                   <Td className="text-right">{formatNumber(level.quantityReserved)}</Td>
-                  <Td className="text-right font-medium">{formatNumber(level.quantityOnHand - level.quantityReserved)}</Td>
+                  <Td className={`text-right font-medium ${available === 0 ? "text-warning" : ""}`}>{formatNumber(available)}</Td>
                 </Tr>
-              ))}
+                );
+              })}
             </Tbody>
           </Table>
         )}

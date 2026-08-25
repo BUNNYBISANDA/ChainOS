@@ -15,6 +15,18 @@ export async function createInboundShipmentAction(purchaseOrderId: string): Prom
   }
 }
 
+export async function createOutboundShipmentAction(customerOrderId: string, originWarehouseId: string): Promise<{ error?: string; id?: string }> {
+  try {
+    const shipment = await apiPost<{ id: string }>("/shipments", { direction: "OUTBOUND", customerOrderId, originWarehouseId });
+    revalidatePath(`/sales-orders/${customerOrderId}`);
+    revalidatePath("/sales-orders");
+    revalidatePath("/shipments");
+    return { id: shipment.id };
+  } catch (err) {
+    return { error: describeError(err) };
+  }
+}
+
 type ShipmentTransition = "book" | "dispatch" | "arrive" | "deliver" | "cancel";
 
 export async function transitionShipmentAction(id: string, action: ShipmentTransition): Promise<{ error?: string }> {
@@ -26,5 +38,6 @@ export async function transitionShipmentAction(id: string, action: ShipmentTrans
   revalidatePath("/shipments");
   revalidatePath(`/shipments/${id}`);
   revalidatePath("/purchase-orders");
+  revalidatePath("/sales-orders");
   return {};
 }

@@ -8,7 +8,15 @@ import { cn } from "@/lib/cn";
  * failure is never something the user could miss by looking away for a
  * second (see phase 1 UX-states requirement).
  */
-export function Banner({ tone, children }: { tone: "success" | "danger"; children: React.ReactNode }) {
+export function Banner({
+  tone,
+  children,
+  className,
+}: {
+  tone: "success" | "danger" | "warning";
+  children: React.ReactNode;
+  className?: string;
+}) {
   const Icon = tone === "success" ? CheckCircle2 : AlertCircle;
   return (
     <div
@@ -17,6 +25,8 @@ export function Banner({ tone, children }: { tone: "success" | "danger"; childre
         "flex items-start gap-2 rounded-md border px-3.5 py-2.5 text-sm",
         tone === "success" && "border-success/20 bg-success-subtle text-success",
         tone === "danger" && "border-danger/20 bg-danger-subtle text-danger",
+        tone === "warning" && "border-warning/25 bg-warning-subtle text-warning",
+        className,
       )}
     >
       <Icon className="mt-0.5 size-4 shrink-0" aria-hidden />

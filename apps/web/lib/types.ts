@@ -48,6 +48,65 @@ export interface Warehouse {
   createdAt: string;
 }
 
+export type CustomerStatus = "ACTIVE" | "INACTIVE" | "BLOCKED";
+
+export interface Customer {
+  id: string;
+  code?: string | null;
+  name: string;
+  companyName?: string | null;
+  contactName?: string | null;
+  email: string | null;
+  phone?: string | null;
+  address?: string | null;
+  city?: string | null;
+  province?: string | null;
+  country?: string | null;
+  status?: CustomerStatus;
+  createdAt: string;
+  customerOrders?: CustomerOrder[];
+  orderCount?: number;
+}
+
+export type SalesOrderStatus =
+  | "DRAFT"
+  | "CONFIRMED"
+  | "ALLOCATED"
+  | "PARTIALLY_FULFILLED"
+  | "FULFILLED"
+  | "CANCELLED";
+
+export type CustomerOrderStatus = "DRAFT" | "RESERVED" | "READY_TO_SHIP" | "SHIPPED" | "DELIVERED" | "CANCELLED";
+
+export interface CustomerOrderLine {
+  id: string;
+  productId: string;
+  qtyOrdered: number;
+  qtyReserved?: number;
+  qtyFulfilled: number;
+  unitPrice?: string | null;
+  product?: Product;
+}
+
+export interface CustomerOrder {
+  id: string;
+  orderNumber?: string | null;
+  customerOrderNumber?: string | null;
+  soNumber?: string | null;
+  customerId: string;
+  warehouseId: string;
+  status: CustomerOrderStatus | SalesOrderStatus;
+  currency?: string | null;
+  notes?: string | null;
+  orderDate?: string | null;
+  requestedDeliveryDate?: string | null;
+  createdAt: string;
+  customer?: Customer;
+  warehouse?: Warehouse;
+  lines: CustomerOrderLine[];
+  shipment?: Shipment | null;
+}
+
 export type PurchaseOrderStatus = "DRAFT" | "APPROVED" | "SHIPPED" | "PARTIALLY_RECEIVED" | "RECEIVED" | "CANCELLED";
 
 export interface PurchaseOrderLine {
@@ -123,6 +182,7 @@ export interface Shipment {
   createdAt: string;
   events?: ShipmentEvent[];
   purchaseOrder?: PurchaseOrder & { supplier?: Supplier };
+  customerOrder?: CustomerOrder & { customer?: Customer };
   destWarehouse?: Warehouse;
   originWarehouse?: Warehouse;
 }

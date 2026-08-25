@@ -31,6 +31,19 @@ const WAREHOUSE_STATUS_TONE: Record<string, Tone> = {
   INACTIVE: "neutral",
 };
 
+const SALES_ORDER_STATUS_TONE: Record<string, Tone> = {
+  DRAFT: "neutral",
+  CONFIRMED: "info",
+  ALLOCATED: "accent",
+  PARTIALLY_FULFILLED: "warning",
+  FULFILLED: "success",
+  CANCELLED: "danger",
+  RESERVED: "accent",
+  READY_TO_SHIP: "warning",
+  SHIPPED: "info",
+  DELIVERED: "success",
+};
+
 export function poStatusTone(status: string): Tone {
   return PO_STATUS_TONE[status] ?? "neutral";
 }
@@ -45,6 +58,14 @@ export function supplierStatusTone(status: string): Tone {
 
 export function warehouseStatusTone(status: string): Tone {
   return WAREHOUSE_STATUS_TONE[status] ?? "neutral";
+}
+
+export function customerStatusTone(status: string): Tone {
+  return SUPPLIER_STATUS_TONE[status] ?? "neutral";
+}
+
+export function salesOrderStatusTone(status: string): Tone {
+  return SALES_ORDER_STATUS_TONE[status] ?? "neutral";
 }
 
 export function formatStatusLabel(status: string): string {

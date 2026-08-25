@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { BookMarked, Ship, PackageCheck, CheckCircle2, XCircle } from "lucide-react";
+import { BookMarked, CheckCircle2, PackageCheck, Ship, XCircle } from "lucide-react";
 import { apiGet, ApiError } from "@/lib/api";
 import type { Shipment, ShipmentStatus } from "@/lib/types";
 import { getCurrentUser } from "@/lib/current-user";
@@ -14,10 +14,10 @@ import { shipmentStatusTone, formatStatusLabel } from "@/lib/status";
 import { formatDateTime } from "@/lib/format";
 
 const NEXT_ACTION: Partial<Record<ShipmentStatus, { action: "book" | "dispatch" | "arrive" | "deliver"; label: string; icon: typeof BookMarked }>> = {
-  CREATED: { action: "book", label: "Mark as Booked", icon: BookMarked },
-  BOOKED: { action: "dispatch", label: "Mark as In Transit", icon: Ship },
-  IN_TRANSIT: { action: "arrive", label: "Mark as Arrived", icon: PackageCheck },
-  ARRIVED: { action: "deliver", label: "Mark as Delivered", icon: CheckCircle2 },
+  CREATED: { action: "book", label: "Book", icon: BookMarked },
+  BOOKED: { action: "dispatch", label: "Dispatch", icon: Ship },
+  IN_TRANSIT: { action: "arrive", label: "Arrive", icon: PackageCheck },
+  ARRIVED: { action: "deliver", label: "Deliver", icon: CheckCircle2 },
 };
 
 const CANCELLABLE: ShipmentStatus[] = ["CREATED", "BOOKED", "IN_TRANSIT"];
@@ -37,12 +37,20 @@ export default async function ShipmentDetailPage({ params }: { params: Promise<{
   const canUpdate = user?.permissions.includes("shipment:update") ?? false;
   const next = NEXT_ACTION[shipment.status];
   const NextIcon = next?.icon;
+  const relatedOrder = shipment.purchaseOrder
+    ? { href: `/purchase-orders/${shipment.purchaseOrder.id}`, label: shipment.purchaseOrder.poNumber }
+    : shipment.customerOrder
+      ? {
+          href: `/sales-orders/${shipment.customerOrder.id}`,
+          label: shipment.customerOrder.soNumber ?? shipment.customerOrder.customerOrderNumber ?? `SO-${shipment.customerOrder.id.slice(0, 8)}`,
+        }
+      : null;
 
   return (
     <>
       <PageHeader
         title={shipment.shipmentNumber}
-        description={`${shipment.direction} · manual tracking`}
+        description={`${shipment.direction} manual tracking`}
         action={
           <div className="flex items-center gap-2">
             {next && canUpdate && (
@@ -63,37 +71,37 @@ export default async function ShipmentDetailPage({ params }: { params: Promise<{
         }
       />
 
-      <div className="mb-6 grid grid-cols-2 gap-4">
+      <div className="mb-6 grid grid-cols-2 gap-4 max-lg:grid-cols-1">
         <Card>
           <CardHeader>
             <CardTitle>Details</CardTitle>
           </CardHeader>
           <CardBody>
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm max-sm:grid-cols-1">
+              <Field label="Direction">
+                <Badge tone={shipment.direction === "OUTBOUND" ? "accent" : "info"}>{shipment.direction}</Badge>
+              </Field>
               <Field label="Status">
                 <Badge tone={shipmentStatusTone(shipment.status)}>{formatStatusLabel(shipment.status)}</Badge>
               </Field>
-              <Field label="Purchase order">
-                {shipment.purchaseOrder ? (
-                  <Link href={`/purchase-orders/${shipment.purchaseOrder.id}`} className="text-accent hover:underline">
-                    {shipment.purchaseOrder.poNumber}
+              <Field label={shipment.direction === "OUTBOUND" ? "Sales order" : "Purchase order"}>
+                {relatedOrder ? (
+                  <Link href={relatedOrder.href} className="text-accent hover:underline">
+                    {relatedOrder.label}
                   </Link>
                 ) : (
-                  "—"
+                  "-"
                 )}
               </Field>
-              <Field label="Origin">{shipment.purchaseOrder?.supplier?.name ?? "—"}</Field>
+              <Field label="Customer">{shipment.customerOrder?.customer?.name ?? "-"}</Field>
+              <Field label="Origin">
+                {shipment.direction === "OUTBOUND" ? shipment.originWarehouse?.name ?? "-" : shipment.purchaseOrder?.supplier?.name ?? "-"}
+              </Field>
               <Field label="Destination">
-                {shipment.destWarehouse ? (
-                  <Link href={`/warehouses/${shipment.destWarehouse.id}`} className="text-accent hover:underline">
-                    {shipment.destWarehouse.name}
-                  </Link>
-                ) : (
-                  "—"
-                )}
+                {shipment.direction === "OUTBOUND" ? shipment.customerOrder?.customer?.name ?? "-" : shipment.destWarehouse?.name ?? "-"}
               </Field>
-              <Field label="Carrier">{shipment.carrier || "—"}</Field>
-              <Field label="Tracking number">{shipment.trackingNumber || "—"}</Field>
+              <Field label="Carrier">{shipment.carrier || "-"}</Field>
+              <Field label="Tracking number">{shipment.trackingNumber || "-"}</Field>
             </dl>
           </CardBody>
         </Card>
@@ -103,18 +111,22 @@ export default async function ShipmentDetailPage({ params }: { params: Promise<{
             <CardTitle>Status timeline</CardTitle>
           </CardHeader>
           <CardBody>
-            <ol className="space-y-3">
-              {shipment.events?.map((event) => (
-                <li key={event.id} className="flex items-start gap-3 text-sm">
-                  <span className="mt-1 size-1.5 shrink-0 rounded-full bg-accent" />
-                  <div>
-                    <p className="font-medium text-ink">{formatStatusLabel(event.status)}</p>
-                    <p className="text-xs text-ink-faint">{formatDateTime(event.occurredAt)}</p>
-                    {event.note && <p className="mt-0.5 text-ink-soft">{event.note}</p>}
-                  </div>
-                </li>
-              ))}
-            </ol>
+            {shipment.events && shipment.events.length > 0 ? (
+              <ol className="space-y-3">
+                {shipment.events.map((event) => (
+                  <li key={event.id} className="flex items-start gap-3 text-sm">
+                    <span className="mt-1 size-1.5 shrink-0 rounded-full bg-accent" />
+                    <div>
+                      <p className="font-medium text-ink">{formatStatusLabel(event.status)}</p>
+                      <p className="text-xs text-ink-faint">{formatDateTime(event.occurredAt)}</p>
+                      {event.note && <p className="mt-0.5 text-ink-soft">{event.note}</p>}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-sm text-ink-faint">No status events recorded yet.</p>
+            )}
           </CardBody>
         </Card>
       </div>
