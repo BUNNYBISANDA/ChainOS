@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { Injectable, Logger } from "@nestjs/common";
-import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
-import { PurchaseOrderStatus, ShipmentDirection, ShipmentStatus, withTenant } from "@chainos/database";
+import { Injectable } from "@nestjs/common";
+import { EventEmitter2 } from "@nestjs/event-emitter";
+import { PurchaseOrderStatus, SalesOrderStatus, ShipmentDirection, ShipmentStatus, withTenant } from "@chainos/database";
 import { TenantContext } from "../../common/tenant/tenant-context";
 import { NotFoundAppException, BadRequestAppException } from "../../common/errors/app-exception";
 import { AppErrorCode } from "../../common/errors/app-error-code";
 import { nextDocumentNumber } from "../../common/numbering";
-import { DomainEvent, OrderReadyPayload, ShipmentCreatedPayload, ShipmentDeliveredPayload } from "../../common/events/domain-events";
+import { DomainEvent, ShipmentCreatedPayload, ShipmentDeliveredPayload } from "../../common/events/domain-events";
 import { CreateShipmentDto } from "./dto/create-shipment.dto";
 import { assertShipmentTransition } from "./shipment-lifecycle";
 
@@ -17,8 +17,6 @@ import { assertShipmentTransition } from "./shipment-lifecycle";
  */
 @Injectable()
 export class ShipmentsService {
-  private readonly logger = new Logger(ShipmentsService.name);
-
   constructor(
     private readonly tenantContext: TenantContext,
     private readonly events: EventEmitter2,
@@ -28,7 +26,9 @@ export class ShipmentsService {
     const { tenantId } = this.tenantContext.get();
 
     const created = await withTenant(tenantId, async (tx) => {
-      let destWarehouseId = dto.destWarehouseId;
+      let destWarehouseId: string | undefined;
+      let originWarehouseId: string | undefined;
+      let destCustomerId: string | undefined;
 
       if (dto.direction === ShipmentDirection.INBOUND) {
         if (!dto.purchaseOrderId) {
@@ -46,6 +46,33 @@ export class ShipmentsService {
           );
         }
         destWarehouseId = po.warehouseId;
+      } else {
+        if (!dto.salesOrderId) {
+          throw new BadRequestAppException(
+            AppErrorCode.VALIDATION_FAILED,
+            "salesOrderId is required for an OUTBOUND shipment",
+          );
+        }
+        // Reads the SalesOrder table directly via the shared tx, same
+        // convention as the INBOUND branch above reading PurchaseOrder —
+        // Logistics doesn't need a service dependency on Fulfillment for
+        // this, just the row (manifest §1 "cross-domain reads may use
+        // query composition").
+        const so = await tx.salesOrder.findFirst({ where: { id: dto.salesOrderId, tenantId } });
+        if (!so) throw new NotFoundAppException("Sales order not found");
+        const shippableStatuses: string[] = [
+          SalesOrderStatus.ALLOCATED,
+          SalesOrderStatus.PARTIALLY_FULFILLED,
+          SalesOrderStatus.FULFILLED,
+        ];
+        if (!shippableStatuses.includes(so.status)) {
+          throw new BadRequestAppException(
+            AppErrorCode.SALES_ORDER_INVALID_STATUS,
+            `Cannot create a shipment for a sales order in ${so.status} state — it must have an active allocation`,
+          );
+        }
+        originWarehouseId = so.warehouseId;
+        destCustomerId = so.customerId;
       }
 
       const shipmentNumber = await nextDocumentNumber(tx, tenantId, "SHP");
@@ -55,9 +82,10 @@ export class ShipmentsService {
           shipmentNumber,
           direction: dto.direction,
           purchaseOrderId: dto.purchaseOrderId,
-          customerOrderId: dto.customerOrderId,
-          originWarehouseId: dto.originWarehouseId,
+          salesOrderId: dto.salesOrderId,
+          originWarehouseId,
           destWarehouseId,
+          destCustomerId,
           carrier: dto.carrier,
           trackingNumber: dto.trackingNumber,
         },
@@ -127,7 +155,7 @@ export class ShipmentsService {
       tenantId,
       shipmentId: id,
       purchaseOrderId: shipment.purchaseOrderId ?? undefined,
-      customerOrderId: shipment.customerOrderId ?? undefined,
+      salesOrderId: shipment.salesOrderId ?? undefined,
     };
     await this.events.emitAsync(DomainEvent.ShipmentDelivered, payload);
     return shipment;
@@ -148,13 +176,5 @@ export class ShipmentsService {
       await tx.shipmentEvent.create({ data: { tenantId, shipmentId: id, status: target, note } });
       return updated;
     });
-  }
-
-  @OnEvent(DomainEvent.OrderReady)
-  onOrderReady(payload: OrderReadyPayload) {
-    // Placeholder: phase 1 ships this as a manual "create shipment" call
-    // (see decisions locked, §5). Auto-creating an outbound Shipment here
-    // is the natural phase-1.5 follow-up once manual tracking is proven out.
-    this.logger.debug(`order.ready observed for customer order ${payload.customerOrderId} — shipment creation is manual in v1`);
   }
 }

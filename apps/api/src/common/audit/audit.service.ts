@@ -1,7 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { Prisma, withTenant } from "@chainos/database";
-
-type Tx = Parameters<Parameters<typeof withTenant>[1]>[0];
+import { Prisma, Tx } from "@chainos/database";
 
 export interface AuditEntry {
   userId: string;

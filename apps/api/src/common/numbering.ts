@@ -1,6 +1,4 @@
-import { withTenant } from "@chainos/database";
-
-type Tx = Parameters<Parameters<typeof withTenant>[1]>[0];
+import { Tx } from "@chainos/database";
 
 /**
  * Tenant-scoped, human-readable sequential numbers: `PO-2026-000001`,
