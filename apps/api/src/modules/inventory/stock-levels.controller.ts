@@ -1,4 +1,4 @@
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get, Query } from "@nestjs/common";
 import { TenantContext } from "../../common/tenant/tenant-context";
 import { InventoryService } from "./inventory.service";
 
@@ -10,8 +10,8 @@ export class StockLevelsController {
   ) {}
 
   @Get()
-  list() {
+  list(@Query("warehouseId") warehouseId?: string, @Query("productId") productId?: string) {
     const { tenantId } = this.tenantContext.get();
-    return this.inventory.listStockLevels(tenantId);
+    return this.inventory.listStockLevels(tenantId, { warehouseId, productId });
   }
 }

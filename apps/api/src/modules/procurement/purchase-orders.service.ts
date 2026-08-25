@@ -1,27 +1,41 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { EventEmitter2 } from "@nestjs/event-emitter";
+import { randomUUID } from "node:crypto";
+import { Injectable, Logger } from "@nestjs/common";
+import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { PurchaseOrderStatus, withTenant } from "@chainos/database";
 import { TenantContext } from "../../common/tenant/tenant-context";
-import { DomainEvent, PoReceivedPayload } from "../../common/events/domain-events";
+import { AuditService } from "../../common/audit/audit.service";
+import { AppErrorCode } from "../../common/errors/app-error-code";
+import { BadRequestAppException, NotFoundAppException } from "../../common/errors/app-exception";
+import { claimEvent } from "../../common/events/claim-event";
+import { nextDocumentNumber } from "../../common/numbering";
+import { DomainEvent, PoApprovedPayload, PoReceivedPayload, ShipmentCreatedPayload } from "../../common/events/domain-events";
 import { CreatePurchaseOrderDto, ReceivePurchaseOrderDto } from "./dto/create-purchase-order.dto";
+import { RECEIVABLE_STATUSES, assertPoTransition } from "./purchase-order-lifecycle";
 
 @Injectable()
 export class PurchaseOrdersService {
+  private readonly logger = new Logger(PurchaseOrdersService.name);
+
   constructor(
     private readonly tenantContext: TenantContext,
     private readonly events: EventEmitter2,
+    private readonly audit: AuditService,
   ) {}
 
   create(dto: CreatePurchaseOrderDto) {
     const { tenantId } = this.tenantContext.get();
-    return withTenant(tenantId, (tx) =>
-      tx.purchaseOrder.create({
+    return withTenant(tenantId, async (tx) => {
+      const poNumber = await nextDocumentNumber(tx, tenantId, "PO");
+      return tx.purchaseOrder.create({
         data: {
           tenantId,
+          poNumber,
           supplierId: dto.supplierId,
           warehouseId: dto.warehouseId,
-          status: PurchaseOrderStatus.ISSUED,
-          issuedAt: new Date(),
+          currency: dto.currency ?? "THB",
+          notes: dto.notes,
+          expectedDeliveryDate: dto.expectedDeliveryDate ? new Date(dto.expectedDeliveryDate) : undefined,
+          status: PurchaseOrderStatus.DRAFT,
           lines: {
             create: dto.lines.map((l) => ({
               tenantId,
@@ -31,39 +45,174 @@ export class PurchaseOrdersService {
             })),
           },
         },
-        include: { lines: true },
+        include: { lines: true, supplier: true, warehouse: true },
+      });
+    });
+  }
+
+  list(filters: { status?: PurchaseOrderStatus; supplierId?: string; warehouseId?: string; from?: string; to?: string }) {
+    const { tenantId } = this.tenantContext.get();
+    return withTenant(tenantId, (tx) =>
+      tx.purchaseOrder.findMany({
+        where: {
+          tenantId,
+          status: filters.status,
+          supplierId: filters.supplierId,
+          warehouseId: filters.warehouseId,
+          orderDate: {
+            gte: filters.from ? new Date(filters.from) : undefined,
+            lte: filters.to ? new Date(filters.to) : undefined,
+          },
+        },
+        include: { lines: true, supplier: true, warehouse: true, shipment: true },
+        orderBy: { createdAt: "desc" },
       }),
     );
   }
 
-  list() {
+  async get(id: string) {
     const { tenantId } = this.tenantContext.get();
-    return withTenant(tenantId, (tx) => tx.purchaseOrder.findMany({ where: { tenantId }, include: { lines: true } }));
+    const po = await withTenant(tenantId, (tx) =>
+      tx.purchaseOrder.findFirst({
+        where: { id, tenantId },
+        include: {
+          lines: { include: { product: true } },
+          supplier: true,
+          warehouse: true,
+          shipment: true,
+          goodsReceipts: { include: { lines: true }, orderBy: { receivedAt: "desc" } },
+        },
+      }),
+    );
+    if (!po) throw new NotFoundAppException("Purchase order not found");
+
+    const lines = po.lines.map((line) => ({
+      ...line,
+      remaining: line.qtyOrdered - line.qtyReceived,
+      lineTotal: line.qtyOrdered * Number(line.unitCost),
+    }));
+
+    return {
+      ...po,
+      lines,
+      totalValue: lines.reduce((sum, l) => sum + l.lineTotal, 0),
+      receivedValue: lines.reduce((sum, l) => sum + l.qtyReceived * Number(l.unitCost), 0),
+    };
+  }
+
+  /** Only Admin/Procurement Manager can approve — enforced by @RequirePermissions("po:approve") on the route. */
+  async approve(id: string) {
+    const { tenantId, userId } = this.tenantContext.get();
+    const updated = await withTenant(tenantId, async (tx) => {
+      const po = await tx.purchaseOrder.findFirst({ where: { id, tenantId } });
+      if (!po) throw new NotFoundAppException("Purchase order not found");
+      assertPoTransition(po.status, PurchaseOrderStatus.APPROVED);
+
+      const result = await tx.purchaseOrder.update({
+        where: { id },
+        data: { status: PurchaseOrderStatus.APPROVED, approvedByUserId: userId, approvedAt: new Date() },
+      });
+      await this.audit.record(tx, tenantId, {
+        userId,
+        action: "purchase_order.approve",
+        entityType: "PurchaseOrder",
+        entityId: id,
+        metadata: { poNumber: po.poNumber },
+      });
+      return result;
+    });
+
+    const payload: PoApprovedPayload = {
+      tenantId,
+      purchaseOrderId: id,
+      approvedByUserId: userId,
+      approvedAt: updated.approvedAt!.toISOString(),
+    };
+    await this.events.emitAsync(DomainEvent.PoApproved, payload);
+    return updated;
+  }
+
+  async cancel(id: string) {
+    const { tenantId, userId } = this.tenantContext.get();
+    return withTenant(tenantId, async (tx) => {
+      const po = await tx.purchaseOrder.findFirst({ where: { id, tenantId } });
+      if (!po) throw new NotFoundAppException("Purchase order not found");
+      assertPoTransition(po.status, PurchaseOrderStatus.CANCELLED);
+
+      const result = await tx.purchaseOrder.update({ where: { id }, data: { status: PurchaseOrderStatus.CANCELLED } });
+      await this.audit.record(tx, tenantId, {
+        userId,
+        action: "purchase_order.cancel",
+        entityType: "PurchaseOrder",
+        entityId: id,
+        metadata: { poNumber: po.poNumber, fromStatus: po.status },
+      });
+      return result;
+    });
   }
 
   /**
-   * Records receipt against PO lines and flips PO status. Does NOT touch
-   * StockLevel/StockMovement directly — Procurement owns the PO, not
-   * inventory. It emits `po.received`; the Inventory module's listener
-   * (modules/inventory/inventory.service.ts) is what actually posts the
-   * ledger entries. See manifest §2.
+   * Records one receiving action (a GoodsReceipt) against a PO, moves it
+   * to PARTIALLY_RECEIVED or RECEIVED, and emits `po.received` so
+   * Inventory can post the ledger movement — Procurement never writes
+   * StockLevel/StockMovement itself (manifest §2). Rejects (never clamps)
+   * any line that would push received quantity past ordered quantity.
    */
   async receive(purchaseOrderId: string, dto: ReceivePurchaseOrderDto) {
-    const { tenantId } = this.tenantContext.get();
+    const { tenantId, userId } = this.tenantContext.get();
 
     const result = await withTenant(tenantId, async (tx) => {
       const po = await tx.purchaseOrder.findFirst({ where: { id: purchaseOrderId, tenantId }, include: { lines: true } });
-      if (!po) throw new NotFoundException("Purchase order not found");
+      if (!po) throw new NotFoundAppException("Purchase order not found");
+      if (!RECEIVABLE_STATUSES.includes(po.status)) {
+        throw new BadRequestAppException(
+          AppErrorCode.PURCHASE_ORDER_INVALID_STATUS,
+          `Purchase order cannot be received from ${po.status} state`,
+        );
+      }
 
       for (const receipt of dto.lines) {
         const line = po.lines.find((l) => l.id === receipt.purchaseOrderLineId);
-        if (!line) throw new BadRequestException(`Unknown PO line ${receipt.purchaseOrderLineId}`);
-        if (line.qtyReceived + receipt.qtyReceived > line.qtyOrdered) {
-          throw new BadRequestException(`Receiving ${receipt.qtyReceived} on line ${line.id} would exceed qtyOrdered`);
+        if (!line) {
+          throw new BadRequestAppException(
+            AppErrorCode.PURCHASE_ORDER_LINE_UNKNOWN,
+            `Unknown PO line ${receipt.purchaseOrderLineId}`,
+          );
         }
+        if (line.qtyReceived + receipt.qtyReceived > line.qtyOrdered) {
+          throw new BadRequestAppException(
+            AppErrorCode.PURCHASE_ORDER_OVER_RECEIPT,
+            `Receiving ${receipt.qtyReceived} on line ${line.id} would exceed the ordered quantity ` +
+              `(${line.qtyReceived}/${line.qtyOrdered} already received)`,
+          );
+        }
+      }
+
+      const goodsReceipt = await tx.goodsReceipt.create({
+        data: { tenantId, purchaseOrderId, warehouseId: po.warehouseId, receivedByUserId: userId },
+      });
+
+      const eventLines: PoReceivedPayload["lines"] = [];
+      for (const receipt of dto.lines) {
+        const line = po.lines.find((l) => l.id === receipt.purchaseOrderLineId)!;
         await tx.purchaseOrderLine.update({
           where: { id: line.id },
           data: { qtyReceived: { increment: receipt.qtyReceived } },
+        });
+        const receiptLine = await tx.goodsReceiptLine.create({
+          data: {
+            tenantId,
+            goodsReceiptId: goodsReceipt.id,
+            purchaseOrderLineId: line.id,
+            productId: line.productId,
+            qtyReceived: receipt.qtyReceived,
+          },
+        });
+        eventLines.push({
+          purchaseOrderLineId: line.id,
+          goodsReceiptLineId: receiptLine.id,
+          productId: line.productId,
+          qtyReceived: receipt.qtyReceived,
         });
       }
 
@@ -73,21 +222,47 @@ export class PurchaseOrdersService {
 
       await tx.purchaseOrder.update({ where: { id: purchaseOrderId }, data: { status } });
 
-      return { po, warehouseId: po.warehouseId };
+      return { warehouseId: po.warehouseId, goodsReceiptId: goodsReceipt.id, eventLines };
     });
 
     const payload: PoReceivedPayload = {
+      eventId: randomUUID(),
       tenantId,
       purchaseOrderId,
       warehouseId: result.warehouseId,
-      lines: dto.lines.map((l) => ({
-        purchaseOrderLineId: l.purchaseOrderLineId,
-        productId: result.po.lines.find((line) => line.id === l.purchaseOrderLineId)!.productId,
-        qtyReceived: l.qtyReceived,
-      })),
+      receiptId: result.goodsReceiptId,
+      receivedAt: new Date().toISOString(),
+      lines: result.eventLines,
     };
-    this.events.emit(DomainEvent.PoReceived, payload);
+    await this.events.emitAsync(DomainEvent.PoReceived, payload);
 
-    return payload;
+    return this.get(purchaseOrderId);
+  }
+
+  /**
+   * Logistics owns Shipment, not PurchaseOrder — this reacts to the event
+   * it emits on shipment creation instead of Logistics writing to
+   * purchase_orders directly (manifest §1 module-boundary rule).
+   * Idempotent like every other cross-module handler; a PO that isn't in
+   * APPROVED any more (already SHIPPED, or cancelled) is left alone
+   * rather than erroring, since redelivery of an old event shouldn't
+   * fail loudly for a PO that's since moved on.
+   */
+  @OnEvent(DomainEvent.ShipmentCreated)
+  async handleShipmentCreated(payload: ShipmentCreatedPayload) {
+    if (!payload.purchaseOrderId) return;
+
+    await withTenant(payload.tenantId, async (tx) => {
+      const claimed = await claimEvent(tx, payload.tenantId, payload.eventId, DomainEvent.ShipmentCreated);
+      if (!claimed) {
+        this.logger.debug(`shipment.created ${payload.eventId} already processed — skipping`);
+        return;
+      }
+
+      const po = await tx.purchaseOrder.findFirst({ where: { id: payload.purchaseOrderId!, tenantId: payload.tenantId } });
+      if (!po || po.status !== PurchaseOrderStatus.APPROVED) return;
+
+      await tx.purchaseOrder.update({ where: { id: po.id }, data: { status: PurchaseOrderStatus.SHIPPED } });
+    });
   }
 }

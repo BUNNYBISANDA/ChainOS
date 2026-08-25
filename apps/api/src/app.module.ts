@@ -1,8 +1,9 @@
-import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
+import { MiddlewareConsumer, Module, NestModule, RequestMethod } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { CommonModule } from "./common/common.module";
 import { DomainEventsModule } from "./common/events/events.module";
-import { TenantMiddleware } from "./common/tenant/tenant.middleware";
+import { RequestIdMiddleware } from "./common/request-id.middleware";
+import { AuthMiddleware } from "./common/auth/auth.middleware";
 import { PermissionsGuard } from "./common/guards/permissions.guard";
 import { IamModule } from "./modules/iam/iam.module";
 import { CatalogModule } from "./modules/catalog/catalog.module";
@@ -26,6 +27,14 @@ import { LogisticsModule } from "./modules/logistics/logistics.module";
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(TenantMiddleware).forRoutes("*");
+    consumer.apply(RequestIdMiddleware).forRoutes("*");
+    consumer
+      .apply(AuthMiddleware)
+      .exclude(
+        { path: "auth/login", method: RequestMethod.POST },
+        { path: "auth/refresh", method: RequestMethod.POST },
+        { path: "auth/logout", method: RequestMethod.POST },
+      )
+      .forRoutes("*");
   }
 }

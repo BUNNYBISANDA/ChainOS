@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { PurchaseOrderStatus } from "@chainos/database";
 import { RequirePermissions } from "../../common/guards/permissions.decorator";
 import { CreatePurchaseOrderDto, ReceivePurchaseOrderDto } from "./dto/create-purchase-order.dto";
 import { PurchaseOrdersService } from "./purchase-orders.service";
@@ -14,8 +15,31 @@ export class PurchaseOrdersController {
   }
 
   @Get()
-  list() {
-    return this.purchaseOrders.list();
+  list(
+    @Query("status") status?: PurchaseOrderStatus,
+    @Query("supplierId") supplierId?: string,
+    @Query("warehouseId") warehouseId?: string,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+  ) {
+    return this.purchaseOrders.list({ status, supplierId, warehouseId, from, to });
+  }
+
+  @Get(":id")
+  get(@Param("id") id: string) {
+    return this.purchaseOrders.get(id);
+  }
+
+  @Post(":id/approve")
+  @RequirePermissions("po:approve")
+  approve(@Param("id") id: string) {
+    return this.purchaseOrders.approve(id);
+  }
+
+  @Post(":id/cancel")
+  @RequirePermissions("po:create")
+  cancel(@Param("id") id: string) {
+    return this.purchaseOrders.cancel(id);
   }
 
   @Post(":id/receive")

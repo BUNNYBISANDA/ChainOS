@@ -1,14 +1,19 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import { Injectable, Logger } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
-import { ShipmentStatus, withTenant } from "@chainos/database";
+import { PurchaseOrderStatus, ShipmentDirection, ShipmentStatus, withTenant } from "@chainos/database";
 import { TenantContext } from "../../common/tenant/tenant-context";
-import { DomainEvent, OrderReadyPayload, ShipmentDeliveredPayload } from "../../common/events/domain-events";
+import { NotFoundAppException, BadRequestAppException } from "../../common/errors/app-exception";
+import { AppErrorCode } from "../../common/errors/app-error-code";
+import { nextDocumentNumber } from "../../common/numbering";
+import { DomainEvent, OrderReadyPayload, ShipmentCreatedPayload, ShipmentDeliveredPayload } from "../../common/events/domain-events";
 import { CreateShipmentDto } from "./dto/create-shipment.dto";
+import { assertShipmentTransition } from "./shipment-lifecycle";
 
 /**
  * Owns: shipments, carriers, tracking events (manifest §2). v1 tracking is
- * manual (decisions locked, §5) — dispatch()/deliver() are called by a
- * human via the API, not by a carrier webhook.
+ * manual (decisions locked, §5) — every status transition below is
+ * called by a human via the API, not by a carrier webhook.
  */
 @Injectable()
 export class ShipmentsService {
@@ -19,49 +24,129 @@ export class ShipmentsService {
     private readonly events: EventEmitter2,
   ) {}
 
-  create(dto: CreateShipmentDto) {
+  async create(dto: CreateShipmentDto) {
+    const { tenantId } = this.tenantContext.get();
+
+    const created = await withTenant(tenantId, async (tx) => {
+      let destWarehouseId = dto.destWarehouseId;
+
+      if (dto.direction === ShipmentDirection.INBOUND) {
+        if (!dto.purchaseOrderId) {
+          throw new BadRequestAppException(
+            AppErrorCode.VALIDATION_FAILED,
+            "purchaseOrderId is required for an INBOUND shipment",
+          );
+        }
+        const po = await tx.purchaseOrder.findFirst({ where: { id: dto.purchaseOrderId, tenantId } });
+        if (!po) throw new NotFoundAppException("Purchase order not found");
+        if (po.status !== PurchaseOrderStatus.APPROVED) {
+          throw new BadRequestAppException(
+            AppErrorCode.PURCHASE_ORDER_INVALID_STATUS,
+            `Cannot create a shipment for a purchase order in ${po.status} state — it must be APPROVED`,
+          );
+        }
+        destWarehouseId = po.warehouseId;
+      }
+
+      const shipmentNumber = await nextDocumentNumber(tx, tenantId, "SHP");
+      const shipment = await tx.shipment.create({
+        data: {
+          tenantId,
+          shipmentNumber,
+          direction: dto.direction,
+          purchaseOrderId: dto.purchaseOrderId,
+          customerOrderId: dto.customerOrderId,
+          originWarehouseId: dto.originWarehouseId,
+          destWarehouseId,
+          carrier: dto.carrier,
+          trackingNumber: dto.trackingNumber,
+        },
+      });
+      await tx.shipmentEvent.create({ data: { tenantId, shipmentId: shipment.id, status: shipment.status } });
+      return shipment;
+    });
+
+    if (created.purchaseOrderId) {
+      const payload: ShipmentCreatedPayload = {
+        eventId: randomUUID(),
+        tenantId,
+        shipmentId: created.id,
+        purchaseOrderId: created.purchaseOrderId,
+      };
+      await this.events.emitAsync(DomainEvent.ShipmentCreated, payload);
+    }
+
+    return created;
+  }
+
+  list(filters: { status?: ShipmentStatus; direction?: ShipmentDirection } = {}) {
     const { tenantId } = this.tenantContext.get();
     return withTenant(tenantId, (tx) =>
-      tx.shipment.create({
-        data: { tenantId, ...dto },
-        include: { events: true },
+      tx.shipment.findMany({
+        where: { tenantId, status: filters.status, direction: filters.direction },
+        include: { events: true, purchaseOrder: true, destWarehouse: true },
+        orderBy: { createdAt: "desc" },
       }),
     );
   }
 
-  list() {
+  async get(id: string) {
     const { tenantId } = this.tenantContext.get();
-    return withTenant(tenantId, (tx) => tx.shipment.findMany({ where: { tenantId }, include: { events: true } }));
+    const shipment = await withTenant(tenantId, (tx) =>
+      tx.shipment.findFirst({
+        where: { id, tenantId },
+        include: {
+          events: { orderBy: { occurredAt: "asc" } },
+          purchaseOrder: { include: { supplier: true } },
+          destWarehouse: true,
+          originWarehouse: true,
+        },
+      }),
+    );
+    if (!shipment) throw new NotFoundAppException("Shipment not found");
+    return shipment;
   }
 
-  async dispatch(shipmentId: string) {
-    const { tenantId } = this.tenantContext.get();
-    await this.setStatus(tenantId, shipmentId, ShipmentStatus.DISPATCHED);
-    this.events.emit(DomainEvent.ShipmentDispatched, { tenantId, shipmentId });
-    return { tenantId, shipmentId, status: ShipmentStatus.DISPATCHED };
+  book(id: string) {
+    return this.transition(id, ShipmentStatus.BOOKED);
   }
 
-  async deliver(shipmentId: string) {
+  dispatch(id: string) {
+    return this.transition(id, ShipmentStatus.IN_TRANSIT);
+  }
+
+  arrive(id: string) {
+    return this.transition(id, ShipmentStatus.ARRIVED);
+  }
+
+  async deliver(id: string) {
+    const shipment = await this.transition(id, ShipmentStatus.DELIVERED);
     const { tenantId } = this.tenantContext.get();
-    const shipment = await this.setStatus(tenantId, shipmentId, ShipmentStatus.DELIVERED);
 
     const payload: ShipmentDeliveredPayload = {
       tenantId,
-      shipmentId,
+      shipmentId: id,
       purchaseOrderId: shipment.purchaseOrderId ?? undefined,
       customerOrderId: shipment.customerOrderId ?? undefined,
     };
-    this.events.emit(DomainEvent.ShipmentDelivered, payload);
-    return payload;
+    await this.events.emitAsync(DomainEvent.ShipmentDelivered, payload);
+    return shipment;
   }
 
-  private async setStatus(tenantId: string, shipmentId: string, status: ShipmentStatus) {
+  cancel(id: string) {
+    return this.transition(id, ShipmentStatus.CANCELLED);
+  }
+
+  private async transition(id: string, target: ShipmentStatus, note?: string) {
+    const { tenantId } = this.tenantContext.get();
     return withTenant(tenantId, async (tx) => {
-      const shipment = await tx.shipment.findFirst({ where: { id: shipmentId, tenantId } });
-      if (!shipment) throw new NotFoundException("Shipment not found");
-      await tx.shipment.update({ where: { id: shipmentId }, data: { status } });
-      await tx.shipmentEvent.create({ data: { tenantId, shipmentId, status } });
-      return shipment;
+      const shipment = await tx.shipment.findFirst({ where: { id, tenantId } });
+      if (!shipment) throw new NotFoundAppException("Shipment not found");
+      assertShipmentTransition(shipment.status, target);
+
+      const updated = await tx.shipment.update({ where: { id }, data: { status: target } });
+      await tx.shipmentEvent.create({ data: { tenantId, shipmentId: id, status: target, note } });
+      return updated;
     });
   }
 

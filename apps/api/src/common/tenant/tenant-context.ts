@@ -10,8 +10,9 @@ export interface RequestContext {
 const storage = new AsyncLocalStorage<RequestContext>();
 
 /**
- * Per-request tenant/user context, populated by TenantMiddleware for every
- * inbound HTTP request. Every module reads the current tenant from here
+ * Per-request tenant/user context, populated by AuthMiddleware (see
+ * common/auth/auth.middleware.ts) for every inbound HTTP request from a
+ * verified access token. Every module reads the current tenant from here
  * rather than threading it through method params — keeps service methods
  * honest about not needing it explicitly while still making
  * `withTenant(ctx.tenantId, ...)` (see @chainos/database) mandatory at the

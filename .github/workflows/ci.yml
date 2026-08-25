@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Privileged connection used for `prisma migrate` and provisioning the
+  # least-privilege app role below — this is NOT what the app or the
+  # integration tests connect as.
+  MIGRATE_DATABASE_URL: postgres://postgres:postgres@localhost:5432/chainos?schema=public
+  # What the app (and integration tests) actually connect as — subject to
+  # RLS, matching production. See packages/database/scripts/ci-app-role.sql
+  # and prisma/rls.sql for why this role must never be a superuser/owner.
+  DATABASE_URL: postgres://chainos_app:chainos_app_ci_password@localhost:5432/chainos?schema=public
+  JWT_ACCESS_SECRET: ci-access-secret-do-not-reuse-anywhere-else
+  JWT_REFRESH_SECRET: ci-refresh-secret-do-not-reuse-anywhere-else
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: chainos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma generate
+        run: pnpm db:generate
+
+      - name: Run migrations (as the privileged role)
+        run: pnpm --filter @chainos/database exec prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ env.MIGRATE_DATABASE_URL }}
+
+      - name: Provision the least-privilege app role
+        run: psql "$MIGRATE_DATABASE_URL" -v ON_ERROR_STOP=1 -f packages/database/scripts/ci-app-role.sql
+
+      - name: Apply row-level security (as the privileged role)
+        run: pnpm --filter @chainos/database rls
+        env:
+          DATABASE_URL: ${{ env.MIGRATE_DATABASE_URL }}
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Integration tests (as the RLS-scoped app role)
+        run: pnpm test:integration
+
+      - name: Build
+        run: pnpm build

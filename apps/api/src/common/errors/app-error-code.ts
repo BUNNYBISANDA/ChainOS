@@ -1,0 +1,35 @@
+/**
+ * Stable, machine-readable domain error codes. These are a public contract
+ * (clients branch on `code`, not on `message` or HTTP status) — once
+ * shipped, rename by adding a new code and deprecating the old one, never
+ * by changing what an existing code means.
+ */
+export enum AppErrorCode {
+  // Generic / cross-cutting
+  VALIDATION_FAILED = "VALIDATION_FAILED",
+  NOT_FOUND = "NOT_FOUND",
+  UNAUTHENTICATED = "UNAUTHENTICATED",
+  FORBIDDEN = "FORBIDDEN",
+  DUPLICATE_VALUE = "DUPLICATE_VALUE",
+  INTERNAL_ERROR = "INTERNAL_ERROR",
+
+  // IAM / auth
+  INVALID_CREDENTIALS = "INVALID_CREDENTIALS",
+  ORGANIZATION_NOT_FOUND = "ORGANIZATION_NOT_FOUND",
+  REFRESH_TOKEN_INVALID = "REFRESH_TOKEN_INVALID",
+
+  // Procurement
+  PURCHASE_ORDER_INVALID_STATUS = "PURCHASE_ORDER_INVALID_STATUS",
+  PURCHASE_ORDER_INVALID_TRANSITION = "PURCHASE_ORDER_INVALID_TRANSITION",
+  PURCHASE_ORDER_LINE_UNKNOWN = "PURCHASE_ORDER_LINE_UNKNOWN",
+  PURCHASE_ORDER_OVER_RECEIPT = "PURCHASE_ORDER_OVER_RECEIPT",
+
+  // Inventory
+  INSUFFICIENT_STOCK = "INSUFFICIENT_STOCK",
+
+  // Fulfillment
+  CUSTOMER_ORDER_INVALID_STATUS = "CUSTOMER_ORDER_INVALID_STATUS",
+
+  // Logistics
+  SHIPMENT_INVALID_TRANSITION = "SHIPMENT_INVALID_TRANSITION",
+}

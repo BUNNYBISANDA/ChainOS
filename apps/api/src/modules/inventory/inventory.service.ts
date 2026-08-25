@@ -1,7 +1,9 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
-import { StockMovementType, withTenant } from "@chainos/database";
-import { TenantContext } from "../../common/tenant/tenant-context";
+import { Prisma, StockMovementType, withTenant } from "@chainos/database";
+import { AppErrorCode } from "../../common/errors/app-error-code";
+import { BadRequestAppException } from "../../common/errors/app-exception";
+import { claimEvent } from "../../common/events/claim-event";
 import {
   DomainEvent,
   OrderReadyPayload,
@@ -10,11 +12,24 @@ import {
   StockChangedPayload,
 } from "../../common/events/domain-events";
 
+type Tx = Parameters<Parameters<typeof withTenant>[1]>[0];
+
+interface StockLevelResult {
+  quantityOnHand: number;
+  quantityReserved: number;
+}
+
 /**
  * Owns the inventory ledger. This is the only module allowed to write
  * StockLevel/StockMovement rows — everyone else gets there by emitting
  * po.received / order.reserved / order.ready and reacting to stock.changed
  * (manifest §1 "inventory is a ledger" + §2 module table).
+ *
+ * Idempotency: every handler here claims its `eventId` in `ProcessedEvent`
+ * inside the same transaction as the ledger write it guards. A duplicate
+ * delivery of the same event (retry, at-least-once redelivery) loses the
+ * unique-constraint race and no-ops instead of double-applying — see
+ * domain-events.ts for the contract this relies on.
  */
 @Injectable()
 export class InventoryService {
@@ -24,74 +39,130 @@ export class InventoryService {
 
   @OnEvent(DomainEvent.PoReceived)
   async handlePoReceived(payload: PoReceivedPayload) {
-    this.logger.debug(`po.received -> posting ${payload.lines.length} receipt(s) for PO ${payload.purchaseOrderId}`);
-    for (const line of payload.lines) {
-      const level = await this.postMovement(payload.tenantId, {
-        productId: line.productId,
-        warehouseId: payload.warehouseId,
-        type: StockMovementType.RECEIPT,
-        quantityDelta: line.qtyReceived,
-        purchaseOrderLineId: line.purchaseOrderLineId,
-      });
-      this.emitStockChanged(payload.tenantId, line.productId, payload.warehouseId, level);
+    const changes = await withTenant(payload.tenantId, async (tx) => {
+      const claimed = await claimEvent(tx, payload.tenantId, payload.eventId, DomainEvent.PoReceived);
+      if (!claimed) {
+        this.logger.debug(`po.received ${payload.eventId} already processed for PO ${payload.purchaseOrderId} — skipping`);
+        return [];
+      }
+
+      this.logger.debug(`po.received ${payload.eventId} -> posting ${payload.lines.length} receipt(s) for PO ${payload.purchaseOrderId}`);
+      const results: Array<{ productId: string; warehouseId: string; level: StockLevelResult }> = [];
+      for (const line of payload.lines) {
+        const level = await this.postMovement(tx, payload.tenantId, {
+          productId: line.productId,
+          warehouseId: payload.warehouseId,
+          type: StockMovementType.RECEIPT,
+          quantityDelta: line.qtyReceived,
+          purchaseOrderLineId: line.purchaseOrderLineId,
+          goodsReceiptLineId: line.goodsReceiptLineId,
+        });
+        results.push({ productId: line.productId, warehouseId: payload.warehouseId, level });
+      }
+      return results;
+    });
+
+    for (const change of changes) {
+      await this.emitStockChanged(payload.tenantId, change.productId, change.warehouseId, change.level);
     }
   }
 
   @OnEvent(DomainEvent.OrderReserved)
   async handleOrderReserved(payload: OrderReservedPayload) {
-    for (const line of payload.lines) {
-      const level = await withTenant(payload.tenantId, async (tx) => {
+    const changes = await withTenant(payload.tenantId, async (tx) => {
+      const claimed = await claimEvent(tx, payload.tenantId, payload.eventId, DomainEvent.OrderReserved);
+      if (!claimed) {
+        this.logger.debug(`order.reserved ${payload.eventId} already processed for order ${payload.customerOrderId} — skipping`);
+        return [];
+      }
+
+      const results: Array<{ productId: string; warehouseId: string; level: StockLevelResult }> = [];
+      for (const line of payload.lines) {
         const current = await tx.stockLevel.findFirst({
           where: { productId: line.productId, warehouseId: payload.warehouseId, locationId: null },
         });
         const available = (current?.quantityOnHand ?? 0) - (current?.quantityReserved ?? 0);
         if (available < line.qty) {
-          throw new BadRequestException(
+          throw new BadRequestAppException(
+            AppErrorCode.INSUFFICIENT_STOCK,
             `Cannot reserve ${line.qty} of product ${line.productId}: only ${available} available`,
           );
         }
-        return tx.stockLevel.upsert({
-          where: {
-            productId_warehouseId_locationId: {
-              productId: line.productId,
-              warehouseId: payload.warehouseId,
-              locationId: null as unknown as string,
-            },
-          },
+        const level = await this.upsertWarehouseStockLevel(tx, payload.tenantId, line.productId, payload.warehouseId, {
           update: { quantityReserved: { increment: line.qty } },
-          create: {
-            tenantId: payload.tenantId,
-            productId: line.productId,
-            warehouseId: payload.warehouseId,
-            quantityReserved: line.qty,
-          },
+          create: { quantityReserved: line.qty },
         });
-      });
-      this.emitStockChanged(payload.tenantId, line.productId, payload.warehouseId, level);
+        results.push({ productId: line.productId, warehouseId: payload.warehouseId, level });
+      }
+      return results;
+    });
+
+    for (const change of changes) {
+      await this.emitStockChanged(payload.tenantId, change.productId, change.warehouseId, change.level);
     }
   }
 
   @OnEvent(DomainEvent.OrderReady)
   async handleOrderReady(payload: OrderReadyPayload) {
-    for (const line of payload.lines) {
-      const level = await this.postMovement(payload.tenantId, {
-        productId: line.productId,
-        warehouseId: payload.warehouseId,
-        type: StockMovementType.FULFILLMENT,
-        quantityDelta: -line.qty,
-        customerOrderLineId: line.customerOrderLineId,
-        releaseReservedQty: line.qty,
-      });
-      this.emitStockChanged(payload.tenantId, line.productId, payload.warehouseId, level);
+    const changes = await withTenant(payload.tenantId, async (tx) => {
+      const claimed = await claimEvent(tx, payload.tenantId, payload.eventId, DomainEvent.OrderReady);
+      if (!claimed) {
+        this.logger.debug(`order.ready ${payload.eventId} already processed for order ${payload.customerOrderId} — skipping`);
+        return [];
+      }
+
+      const results: Array<{ productId: string; warehouseId: string; level: StockLevelResult }> = [];
+      for (const line of payload.lines) {
+        const level = await this.postMovement(tx, payload.tenantId, {
+          productId: line.productId,
+          warehouseId: payload.warehouseId,
+          type: StockMovementType.FULFILLMENT,
+          quantityDelta: -line.qty,
+          customerOrderLineId: line.customerOrderLineId,
+          releaseReservedQty: line.qty,
+        });
+        results.push({ productId: line.productId, warehouseId: payload.warehouseId, level });
+      }
+      return results;
+    });
+
+    for (const change of changes) {
+      await this.emitStockChanged(payload.tenantId, change.productId, change.warehouseId, change.level);
     }
   }
 
-  listStockLevels(tenantId: string) {
-    return withTenant(tenantId, (tx) => tx.stockLevel.findMany({ where: { tenantId } }));
+  listStockLevels(tenantId: string, filters: { warehouseId?: string; productId?: string } = {}) {
+    return withTenant(tenantId, (tx) =>
+      tx.stockLevel.findMany({
+        where: {
+          tenantId,
+          warehouseId: filters.warehouseId,
+          productId: filters.productId,
+        },
+        include: { product: true, warehouse: true },
+        orderBy: [{ product: { sku: "asc" } }],
+      }),
+    );
+  }
+
+  /** Immutable movement history for one product+warehouse — the ledger drill-down. */
+  listMovements(tenantId: string, filters: { productId?: string; warehouseId?: string } = {}) {
+    return withTenant(tenantId, (tx) =>
+      tx.stockMovement.findMany({
+        where: {
+          tenantId,
+          productId: filters.productId,
+          warehouseId: filters.warehouseId,
+        },
+        include: { product: true, warehouse: true },
+        orderBy: { createdAt: "desc" },
+      }),
+    );
   }
 
   /** Posts one ledger row and updates the materialized StockLevel in the same transaction. */
-  private postMovement(
+  private async postMovement(
+    tx: Tx,
     tenantId: string,
     args: {
       productId: string;
@@ -99,50 +170,74 @@ export class InventoryService {
       type: StockMovementType;
       quantityDelta: number;
       purchaseOrderLineId?: string;
+      goodsReceiptLineId?: string;
       customerOrderLineId?: string;
       releaseReservedQty?: number;
     },
-  ) {
-    return withTenant(tenantId, async (tx) => {
-      await tx.stockMovement.create({
-        data: {
-          tenantId,
-          productId: args.productId,
-          warehouseId: args.warehouseId,
-          type: args.type,
-          quantityDelta: args.quantityDelta,
-          purchaseOrderLineId: args.purchaseOrderLineId,
-          customerOrderLineId: args.customerOrderLineId,
-        },
-      });
+  ): Promise<StockLevelResult> {
+    await tx.stockMovement.create({
+      data: {
+        tenantId,
+        productId: args.productId,
+        warehouseId: args.warehouseId,
+        type: args.type,
+        quantityDelta: args.quantityDelta,
+        purchaseOrderLineId: args.purchaseOrderLineId,
+        goodsReceiptLineId: args.goodsReceiptLineId,
+        customerOrderLineId: args.customerOrderLineId,
+      },
+    });
 
-      return tx.stockLevel.upsert({
-        where: {
-          productId_warehouseId_locationId: {
-            productId: args.productId,
-            warehouseId: args.warehouseId,
-            locationId: null as unknown as string,
-          },
-        },
-        update: {
-          quantityOnHand: { increment: args.quantityDelta },
-          ...(args.releaseReservedQty ? { quantityReserved: { decrement: args.releaseReservedQty } } : {}),
-        },
-        create: {
-          tenantId,
-          productId: args.productId,
-          warehouseId: args.warehouseId,
-          quantityOnHand: args.quantityDelta,
-        },
-      });
+    return this.upsertWarehouseStockLevel(tx, tenantId, args.productId, args.warehouseId, {
+      update: {
+        quantityOnHand: { increment: args.quantityDelta },
+        ...(args.releaseReservedQty ? { quantityReserved: { decrement: args.releaseReservedQty } } : {}),
+      },
+      create: { quantityOnHand: args.quantityDelta },
     });
   }
 
-  private emitStockChanged(
+  /**
+   * Upserts the warehouse-level (locationId IS NULL) StockLevel row for one
+   * product+warehouse. `stockLevel.upsert()` can't target this row directly
+   * — Prisma's compound-unique `where` rejects `null` for the nullable
+   * `locationId` component (Postgres unique indexes don't make a NULL
+   * component findable that way), so this does an explicit find, then
+   * create-or-update. A concurrent first-write race (two transactions both
+   * see no existing row) is resolved by retrying the loser as an update
+   * after its `create` hits the unique constraint.
+   */
+  private async upsertWarehouseStockLevel(
+    tx: Tx,
     tenantId: string,
     productId: string,
     warehouseId: string,
-    level: { quantityOnHand: number; quantityReserved: number },
+    args: {
+      update: Parameters<Tx["stockLevel"]["update"]>[0]["data"];
+      create: { quantityOnHand?: number; quantityReserved?: number };
+    },
+  ): Promise<StockLevelResult> {
+    const where = { productId, warehouseId, locationId: null };
+
+    const existing = await tx.stockLevel.findFirst({ where });
+    if (existing) {
+      return tx.stockLevel.update({ where: { id: existing.id }, data: args.update });
+    }
+
+    try {
+      return await tx.stockLevel.create({ data: { tenantId, productId, warehouseId, ...args.create } });
+    } catch (err) {
+      if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== "P2002") throw err;
+      const nowExisting = await tx.stockLevel.findFirstOrThrow({ where });
+      return tx.stockLevel.update({ where: { id: nowExisting.id }, data: args.update });
+    }
+  }
+
+  private async emitStockChanged(
+    tenantId: string,
+    productId: string,
+    warehouseId: string,
+    level: StockLevelResult,
   ) {
     const payload: StockChangedPayload = {
       tenantId,
@@ -151,9 +246,9 @@ export class InventoryService {
       quantityOnHand: level.quantityOnHand,
       quantityReserved: level.quantityReserved,
     };
-    this.events.emit(DomainEvent.StockChanged, payload);
+    await this.events.emitAsync(DomainEvent.StockChanged, payload);
     if (level.quantityOnHand - level.quantityReserved <= 0) {
-      this.events.emit(DomainEvent.StockLow, payload);
+      await this.events.emitAsync(DomainEvent.StockLow, payload);
     }
   }
 }

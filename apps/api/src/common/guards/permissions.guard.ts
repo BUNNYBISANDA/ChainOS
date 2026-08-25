@@ -6,7 +6,7 @@ import { PERMISSIONS_KEY } from "./permissions.decorator";
 /**
  * Checks the required permissions on a route (set via @RequirePermissions)
  * against the caller's permissions resolved onto TenantContext by
- * TenantMiddleware. A route with no @RequirePermissions is allowed through
+ * AuthMiddleware. A route with no @RequirePermissions is allowed through
  * — mark every mutating endpoint explicitly.
  */
 @Injectable()

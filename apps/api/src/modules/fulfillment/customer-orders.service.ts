@@ -1,7 +1,10 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import { Injectable, Logger } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { CustomerOrderStatus, withTenant } from "@chainos/database";
 import { TenantContext } from "../../common/tenant/tenant-context";
+import { AppErrorCode } from "../../common/errors/app-error-code";
+import { BadRequestAppException, NotFoundAppException } from "../../common/errors/app-exception";
 import {
   DomainEvent,
   OrderReadyPayload,
@@ -48,18 +51,25 @@ export class CustomerOrdersService {
     const { tenantId } = this.tenantContext.get();
     const order = await withTenant(tenantId, async (tx) => {
       const found = await tx.customerOrder.findFirst({ where: { id: customerOrderId, tenantId }, include: { lines: true } });
-      if (!found) throw new NotFoundException("Customer order not found");
+      if (!found) throw new NotFoundAppException("Customer order not found");
+      if (found.status !== CustomerOrderStatus.DRAFT) {
+        throw new BadRequestAppException(
+          AppErrorCode.CUSTOMER_ORDER_INVALID_STATUS,
+          `Customer order cannot be reserved from ${found.status} state`,
+        );
+      }
       await tx.customerOrder.update({ where: { id: customerOrderId }, data: { status: CustomerOrderStatus.RESERVED } });
       return found;
     });
 
     const payload: OrderReservedPayload = {
+      eventId: randomUUID(),
       tenantId,
       customerOrderId,
       warehouseId: order.warehouseId,
       lines: order.lines.map((l) => ({ customerOrderLineId: l.id, productId: l.productId, qty: l.qtyOrdered })),
     };
-    this.events.emit(DomainEvent.OrderReserved, payload);
+    await this.events.emitAsync(DomainEvent.OrderReserved, payload);
     return payload;
   }
 
@@ -68,18 +78,25 @@ export class CustomerOrdersService {
     const { tenantId } = this.tenantContext.get();
     const order = await withTenant(tenantId, async (tx) => {
       const found = await tx.customerOrder.findFirst({ where: { id: customerOrderId, tenantId }, include: { lines: true } });
-      if (!found) throw new NotFoundException("Customer order not found");
+      if (!found) throw new NotFoundAppException("Customer order not found");
+      if (found.status !== CustomerOrderStatus.RESERVED) {
+        throw new BadRequestAppException(
+          AppErrorCode.CUSTOMER_ORDER_INVALID_STATUS,
+          `Customer order cannot be marked ready from ${found.status} state`,
+        );
+      }
       await tx.customerOrder.update({ where: { id: customerOrderId }, data: { status: CustomerOrderStatus.READY_TO_SHIP } });
       return found;
     });
 
     const payload: OrderReadyPayload = {
+      eventId: randomUUID(),
       tenantId,
       customerOrderId,
       warehouseId: order.warehouseId,
       lines: order.lines.map((l) => ({ customerOrderLineId: l.id, productId: l.productId, qty: l.qtyOrdered })),
     };
-    this.events.emit(DomainEvent.OrderReady, payload);
+    await this.events.emitAsync(DomainEvent.OrderReady, payload);
     return payload;
   }
 

@@ -10,12 +10,21 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "test": "turbo run test",
+    "test:integration": "pnpm --filter @chainos/api test:integration",
     "typecheck": "turbo run typecheck",
     "db:generate": "pnpm --filter @chainos/database generate",
-    "db:migrate": "pnpm --filter @chainos/database migrate"
+    "db:migrate": "pnpm --filter @chainos/database migrate",
+    "db:seed": "pnpm --filter @chainos/database seed",
+    "db:reset": "pnpm --filter @chainos/database reset"
   },
   "devDependencies": {
+    "@next/eslint-plugin-next": "^16.3.2",
+    "eslint": "^9.13.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.11.0",
     "turbo": "^2.3.0",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.67.0"
   }
 }

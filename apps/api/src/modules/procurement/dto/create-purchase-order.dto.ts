@@ -1,5 +1,17 @@
 import { Type } from "class-transformer";
-import { ArrayMinSize, IsInt, IsNumber, IsPositive, IsUUID, Min, ValidateNested } from "class-validator";
+import {
+  ArrayMinSize,
+  IsArray,
+  IsDateString,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+  IsUUID,
+  Min,
+  ValidateNested,
+} from "class-validator";
 
 export class CreatePurchaseOrderLineDto {
   @IsUUID()
@@ -21,6 +33,19 @@ export class CreatePurchaseOrderDto {
   @IsUUID()
   warehouseId!: string;
 
+  @IsOptional()
+  @IsString()
+  currency?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @IsDateString()
+  expectedDeliveryDate?: string;
+
+  @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreatePurchaseOrderLineDto)
   @ArrayMinSize(1)
@@ -37,6 +62,7 @@ export class ReceivePurchaseOrderLineDto {
 }
 
 export class ReceivePurchaseOrderDto {
+  @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ReceivePurchaseOrderLineDto)
   @ArrayMinSize(1)

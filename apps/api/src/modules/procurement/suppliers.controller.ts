@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
 import { RequirePermissions } from "../../common/guards/permissions.decorator";
 import { CreateSupplierDto } from "./dto/create-supplier.dto";
+import { UpdateSupplierDto } from "./dto/update-supplier.dto";
 import { SuppliersService } from "./suppliers.service";
 
 @Controller("suppliers")
@@ -16,5 +17,16 @@ export class SuppliersController {
   @Get()
   list() {
     return this.suppliers.list();
+  }
+
+  @Get(":id")
+  get(@Param("id") id: string) {
+    return this.suppliers.get(id);
+  }
+
+  @Patch(":id")
+  @RequirePermissions("procurement:write")
+  update(@Param("id") id: string, @Body() dto: UpdateSupplierDto) {
+    return this.suppliers.update(id, dto);
   }
 }

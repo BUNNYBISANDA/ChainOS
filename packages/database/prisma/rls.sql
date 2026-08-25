@@ -17,11 +17,14 @@ BEGIN
       'users', 'roles', 'products', 'suppliers', 'supplier_products',
       'purchase_orders', 'purchase_order_lines', 'warehouses', 'locations',
       'stock_levels', 'stock_movements', 'customers', 'customer_orders',
-      'customer_order_lines', 'shipments', 'shipment_events'
+      'customer_order_lines', 'shipments', 'shipment_events',
+      'refresh_tokens', 'processed_events', 'goods_receipts',
+      'goods_receipt_lines', 'number_sequences', 'audit_logs'
     ])
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
+    EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format(
       'CREATE POLICY tenant_isolation ON %I
          USING ("tenantId" = current_setting(''app.tenant_id'', true)::text)

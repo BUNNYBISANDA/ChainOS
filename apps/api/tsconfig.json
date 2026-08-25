@@ -3,8 +3,9 @@
   "compilerOptions": {
     "module": "commonjs",
     "outDir": "dist",
+    "rootDir": ".",
     "baseUrl": "src",
     "incremental": true
   },
-  "include": ["src"]
+  "include": ["src", "test"]
 }
