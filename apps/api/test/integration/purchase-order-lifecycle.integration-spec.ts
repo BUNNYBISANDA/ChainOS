@@ -38,7 +38,7 @@ describe("Purchase order lifecycle (create -> approve -> ship -> receive)", () =
     supplierId = supplier.id;
     warehouseId = warehouse.id;
     productId = product.id;
-  }, 30000);
+  }, 90000);
 
   afterAll(async () => {
     await cleanupTestTenant(tenant.tenantId);

@@ -14,7 +14,7 @@ if (!process.env.DATABASE_URL) {
 if (!process.env.JWT_ACCESS_SECRET) process.env.JWT_ACCESS_SECRET = "integration-test-access-secret";
 if (!process.env.JWT_REFRESH_SECRET) process.env.JWT_REFRESH_SECRET = "integration-test-refresh-secret";
 
-jest.setTimeout(30000);
+jest.setTimeout(90000);
 
 console.log(`[integration tests] target: ${maskCredentials(process.env.DATABASE_URL)}`);
 

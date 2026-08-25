@@ -24,6 +24,9 @@ export const ALL_PERMISSIONS = [
   "sales-order:fulfill",
   "shipment:create",
   "shipment:update",
+  "shipment:tracking:create",
+  "shipment:eta:update",
+  "shipment:exceptions:read",
 ];
 
 export async function createTestApp(): Promise<INestApplication> {
@@ -179,6 +182,7 @@ export async function isRlsEnforced(): Promise<boolean> {
 /** Deletes every row for one test tenant, in FK-safe order, then the tenant itself. */
 export async function cleanupTestTenant(tenantId: string): Promise<void> {
   await withTenant(tenantId, async (tx) => {
+    await tx.shipmentException.deleteMany({ where: { tenantId } });
     await tx.shipmentEvent.deleteMany({ where: { tenantId } });
     await tx.shipment.deleteMany({ where: { tenantId } });
     await tx.inventoryReservation.deleteMany({ where: { tenantId } });

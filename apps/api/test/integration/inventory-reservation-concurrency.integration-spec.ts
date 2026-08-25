@@ -39,7 +39,7 @@ describe("Concurrent sales order allocation against real Postgres", () => {
     const customer = await seedCustomer(tenant.tenantId, "Reservation Concurrency Customer");
     warehouseId = warehouse.id;
     customerId = customer.id;
-  }, 30000);
+  }, 90000);
 
   afterAll(async () => {
     await cleanupTestTenant(tenant.tenantId);

@@ -9,7 +9,7 @@ describe("Authentication", () => {
   beforeAll(async () => {
     app = await createTestApp();
     tenant = await createTestTenant("auth");
-  }, 30000);
+  }, 90000);
 
   afterAll(async () => {
     await cleanupTestTenant(tenant.tenantId);

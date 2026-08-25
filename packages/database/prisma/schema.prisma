@@ -67,13 +67,13 @@ model User {
 // server-side instead of only relying on JWT expiry. Only the hash is
 // stored — the raw token is never persisted (see apps/api AuthService).
 model RefreshToken {
-  id         String    @id @default(uuid())
-  tenantId   String
-  userId     String
-  tokenHash  String    @unique
-  expiresAt  DateTime
-  revokedAt  DateTime?
-  createdAt  DateTime  @default(now())
+  id        String    @id @default(uuid())
+  tenantId  String
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id])
 
@@ -116,7 +116,7 @@ model Product {
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
 
-  tenant                Tenant                  @relation(fields: [tenantId], references: [id])
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id])
   supplierProducts      SupplierProduct[]
   purchaseOrderLines    PurchaseOrderLine[]
   salesOrderLines       SalesOrderLine[]
@@ -149,7 +149,7 @@ model Supplier {
   status      SupplierStatus @default(ACTIVE)
   createdAt   DateTime       @default(now())
 
-  tenant          Tenant              @relation(fields: [tenantId], references: [id])
+  tenant           Tenant            @relation(fields: [tenantId], references: [id])
   supplierProducts SupplierProduct[]
   purchaseOrders   PurchaseOrder[]
 
@@ -160,13 +160,13 @@ model Supplier {
 
 // Supplier-specific view of a product: their SKU, cost, and lead time.
 model SupplierProduct {
-  id             String  @id @default(uuid())
-  tenantId       String
-  supplierId     String
-  productId      String
-  supplierSku    String?
-  unitCost       Decimal @db.Decimal(12, 2)
-  leadTimeDays   Int?
+  id           String  @id @default(uuid())
+  tenantId     String
+  supplierId   String
+  productId    String
+  supplierSku  String?
+  unitCost     Decimal @db.Decimal(12, 2)
+  leadTimeDays Int?
 
   supplier Supplier @relation(fields: [supplierId], references: [id])
   product  Product  @relation(fields: [productId], references: [id])
@@ -346,7 +346,7 @@ model Warehouse {
   status    WarehouseStatus @default(ACTIVE)
   createdAt DateTime        @default(now())
 
-  tenant                Tenant                  @relation(fields: [tenantId], references: [id])
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id])
   locations             Location[]
   purchaseOrders        PurchaseOrder[]
   salesOrders           SalesOrder[]
@@ -354,8 +354,8 @@ model Warehouse {
   stockLevels           StockLevel[]
   stockMovements        StockMovement[]
   inventoryReservations InventoryReservation[]
-  outboundShipments     Shipment[]              @relation("OutboundWarehouse")
-  inboundShipments      Shipment[]              @relation("InboundWarehouse")
+  outboundShipments     Shipment[]             @relation("OutboundWarehouse")
+  inboundShipments      Shipment[]             @relation("InboundWarehouse")
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -366,7 +366,7 @@ model Warehouse {
 // StockLevel.locationId stays null until then; MVP tracks stock at the
 // warehouse level only (see manifest §3).
 model Location {
-  id          String  @id @default(uuid())
+  id          String @id @default(uuid())
   tenantId    String
   warehouseId String
   code        String
@@ -383,13 +383,13 @@ model Location {
 // (+ optional location, phase 1.5+). Always written alongside the
 // StockMovement row that caused the change — never written to on its own.
 model StockLevel {
-  id                String  @id @default(uuid())
-  tenantId          String
-  productId         String
-  warehouseId       String
-  locationId        String?
-  quantityOnHand    Int     @default(0)
-  quantityReserved  Int     @default(0)
+  id               String  @id @default(uuid())
+  tenantId         String
+  productId        String
+  warehouseId      String
+  locationId       String?
+  quantityOnHand   Int     @default(0)
+  quantityReserved Int     @default(0)
 
   tenant    Tenant    @relation(fields: [tenantId], references: [id])
   product   Product   @relation(fields: [productId], references: [id])
@@ -461,9 +461,9 @@ model Customer {
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
-  tenant            Tenant     @relation(fields: [tenantId], references: [id])
+  tenant            Tenant       @relation(fields: [tenantId], references: [id])
   salesOrders       SalesOrder[]
-  outboundShipments Shipment[] @relation("OutboundCustomer")
+  outboundShipments Shipment[]   @relation("OutboundCustomer")
 
   @@unique([tenantId, customerCode])
   @@index([tenantId])
@@ -505,9 +505,9 @@ model SalesOrder {
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
 
-  tenant       Tenant                  @relation(fields: [tenantId], references: [id])
-  customer     Customer                @relation(fields: [customerId], references: [id])
-  warehouse    Warehouse               @relation(fields: [warehouseId], references: [id])
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id])
+  customer     Customer               @relation(fields: [customerId], references: [id])
+  warehouse    Warehouse              @relation(fields: [warehouseId], references: [id])
   lines        SalesOrderLine[]
   reservations InventoryReservation[]
   shipment     Shipment?
@@ -527,8 +527,8 @@ model SalesOrderLine {
   qtyFulfilled Int     @default(0)
   unitPrice    Decimal @db.Decimal(12, 2)
 
-  salesOrder     SalesOrder             @relation(fields: [salesOrderId], references: [id])
-  product        Product                @relation(fields: [productId], references: [id])
+  salesOrder     SalesOrder            @relation(fields: [salesOrderId], references: [id])
+  product        Product               @relation(fields: [productId], references: [id])
   reservation    InventoryReservation?
   stockMovements StockMovement[]
 
@@ -596,6 +596,44 @@ enum ShipmentStatus {
   CANCELLED
 }
 
+enum ShipmentEventType {
+  CREATED
+  BOOKED
+  DISPATCHED
+  IN_TRANSIT
+  ARRIVED
+  DELIVERED
+  CANCELLED
+  DELAYED
+  ETA_UPDATED
+  LOCATION_UPDATED
+  NOTE_ADDED
+}
+
+enum TrackingEventSource {
+  SYSTEM
+  MANUAL
+  PROVIDER
+}
+
+enum ShipmentExceptionType {
+  ETA_EXCEEDED
+  TRACKING_STALE
+  NOT_DISPATCHED
+  ARRIVAL_OVERDUE
+}
+
+enum ShipmentExceptionSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum ShipmentExceptionStatus {
+  OPEN
+  RESOLVED
+}
+
 // One entity for both legs (see manifest §1): inbound ties to a
 // PurchaseOrder + origin supplier, outbound ties to a SalesOrder +
 // destination customer (destCustomerId, derived server-side from the
@@ -603,27 +641,43 @@ enum ShipmentStatus {
 // (status set by hand); `carrier` / `trackingNumber` are captured for
 // reference only until a carrier integration lands.
 model Shipment {
-  id                String            @id @default(uuid())
-  tenantId          String
-  shipmentNumber    String
-  direction         ShipmentDirection
-  status            ShipmentStatus    @default(CREATED)
-  purchaseOrderId   String?           @unique
-  salesOrderId      String?           @unique
-  originWarehouseId String?
-  destWarehouseId   String?
-  destCustomerId    String?
-  carrier           String?
-  trackingNumber    String?
-  createdAt         DateTime          @default(now())
+  id                   String            @id @default(uuid())
+  tenantId             String
+  shipmentNumber       String
+  direction            ShipmentDirection
+  status               ShipmentStatus    @default(CREATED)
+  purchaseOrderId      String?           @unique
+  salesOrderId         String?           @unique
+  originWarehouseId    String?
+  destWarehouseId      String?
+  destCustomerId       String?
+  carrier              String?
+  trackingNumber       String?
+  originName           String?
+  originLatitude       Decimal?
+  originLongitude      Decimal?
+  destinationName      String?
+  destinationLatitude  Decimal?
+  destinationLongitude Decimal?
+  currentLocationName  String?
+  currentLatitude      Decimal?
+  currentLongitude     Decimal?
+  plannedDepartureAt   DateTime?
+  plannedArrivalAt     DateTime?
+  actualDepartureAt    DateTime?
+  actualArrivalAt      DateTime?
+  estimatedArrivalAt   DateTime?
+  lastTrackingEventAt  DateTime?
+  createdAt            DateTime          @default(now())
 
-  tenant          Tenant         @relation(fields: [tenantId], references: [id])
-  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
-  salesOrder      SalesOrder?    @relation(fields: [salesOrderId], references: [id])
-  originWarehouse Warehouse?     @relation("InboundWarehouse", fields: [originWarehouseId], references: [id])
-  destWarehouse   Warehouse?     @relation("OutboundWarehouse", fields: [destWarehouseId], references: [id])
-  destCustomer    Customer?      @relation("OutboundCustomer", fields: [destCustomerId], references: [id])
+  tenant          Tenant              @relation(fields: [tenantId], references: [id])
+  purchaseOrder   PurchaseOrder?      @relation(fields: [purchaseOrderId], references: [id])
+  salesOrder      SalesOrder?         @relation(fields: [salesOrderId], references: [id])
+  originWarehouse Warehouse?          @relation("InboundWarehouse", fields: [originWarehouseId], references: [id])
+  destWarehouse   Warehouse?          @relation("OutboundWarehouse", fields: [destWarehouseId], references: [id])
+  destCustomer    Customer?           @relation("OutboundCustomer", fields: [destCustomerId], references: [id])
   events          ShipmentEvent[]
+  exceptions      ShipmentException[]
 
   @@unique([tenantId, shipmentNumber])
   @@index([tenantId])
@@ -631,16 +685,48 @@ model Shipment {
 }
 
 model ShipmentEvent {
-  id         String         @id @default(uuid())
-  tenantId   String
-  shipmentId String
-  status     ShipmentStatus
-  note       String?
-  occurredAt DateTime       @default(now())
+  id              String              @id @default(uuid())
+  tenantId        String
+  shipmentId      String
+  status          ShipmentStatus?
+  eventType       ShipmentEventType   @default(CREATED)
+  eventTimestamp  DateTime            @default(now())
+  locationName    String?
+  latitude        Decimal?
+  longitude       Decimal?
+  source          TrackingEventSource @default(SYSTEM)
+  note            String?
+  notes           String?
+  metadata        Json?
+  createdByUserId String?
+  occurredAt      DateTime            @default(now())
+  createdAt       DateTime            @default(now())
 
   shipment Shipment @relation(fields: [shipmentId], references: [id])
 
   @@index([tenantId])
   @@index([shipmentId])
+  @@index([tenantId, shipmentId, eventType, source])
   @@map("shipment_events")
+}
+
+model ShipmentException {
+  id         String                    @id @default(uuid())
+  tenantId   String
+  shipmentId String
+  type       ShipmentExceptionType
+  severity   ShipmentExceptionSeverity
+  status     ShipmentExceptionStatus   @default(OPEN)
+  detectedAt DateTime                  @default(now())
+  resolvedAt DateTime?
+  message    String
+  metadata   Json?
+  createdAt  DateTime                  @default(now())
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id])
+
+  @@index([tenantId])
+  @@index([shipmentId])
+  @@index([tenantId, shipmentId, type, status])
+  @@map("shipment_exceptions")
 }

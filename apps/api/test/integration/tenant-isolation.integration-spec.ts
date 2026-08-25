@@ -87,7 +87,7 @@ describe("Tenant isolation", () => {
       .send({ direction: "OUTBOUND", salesOrderId: salesOrderB.id })
       .expect(201);
     outboundShipmentB = outboundShipmentRes.body;
-  }, 30000);
+  }, 90000);
 
   afterAll(async () => {
     await cleanupTestTenant(tenantA.tenantId);

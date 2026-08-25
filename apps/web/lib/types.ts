@@ -160,12 +160,51 @@ export interface GoodsReceipt {
 
 export type ShipmentStatus = "CREATED" | "BOOKED" | "IN_TRANSIT" | "ARRIVED" | "DELIVERED" | "CANCELLED";
 export type ShipmentDirection = "INBOUND" | "OUTBOUND";
+export type ShipmentEventType =
+  | "CREATED"
+  | "BOOKED"
+  | "DISPATCHED"
+  | "IN_TRANSIT"
+  | "ARRIVED"
+  | "DELIVERED"
+  | "CANCELLED"
+  | "DELAYED"
+  | "ETA_UPDATED"
+  | "LOCATION_UPDATED"
+  | "NOTE_ADDED";
+export type TrackingEventSource = "SYSTEM" | "MANUAL" | "PROVIDER";
+export type ShipmentExceptionType = "ETA_EXCEEDED" | "TRACKING_STALE" | "NOT_DISPATCHED" | "ARRIVAL_OVERDUE";
+export type ShipmentExceptionSeverity = "INFO" | "WARNING" | "CRITICAL";
+export type ShipmentExceptionStatus = "OPEN" | "RESOLVED";
 
 export interface ShipmentEvent {
   id: string;
-  status: ShipmentStatus;
+  status: ShipmentStatus | null;
+  eventType: ShipmentEventType;
+  eventTimestamp: string;
+  locationName: string | null;
+  latitude: string | number | null;
+  longitude: string | number | null;
+  source: TrackingEventSource;
   note: string | null;
+  notes: string | null;
+  metadata: Record<string, unknown> | null;
+  createdByUserId: string | null;
   occurredAt: string;
+  createdAt: string;
+}
+
+export interface ShipmentException {
+  id: string;
+  shipmentId: string;
+  type: ShipmentExceptionType;
+  severity: ShipmentExceptionSeverity;
+  status: ShipmentExceptionStatus;
+  detectedAt: string;
+  resolvedAt: string | null;
+  message: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
 }
 
 export interface Shipment {
@@ -180,8 +219,24 @@ export interface Shipment {
   destCustomerId: string | null;
   carrier: string | null;
   trackingNumber: string | null;
+  originName: string | null;
+  originLatitude: string | number | null;
+  originLongitude: string | number | null;
+  destinationName: string | null;
+  destinationLatitude: string | number | null;
+  destinationLongitude: string | number | null;
+  currentLocationName: string | null;
+  currentLatitude: string | number | null;
+  currentLongitude: string | number | null;
+  plannedDepartureAt: string | null;
+  plannedArrivalAt: string | null;
+  actualDepartureAt: string | null;
+  actualArrivalAt: string | null;
+  estimatedArrivalAt: string | null;
+  lastTrackingEventAt: string | null;
   createdAt: string;
   events?: ShipmentEvent[];
+  exceptions?: ShipmentException[];
   purchaseOrder?: PurchaseOrder & { supplier?: Supplier };
   salesOrder?: SalesOrder & { customer?: Customer };
   destWarehouse?: Warehouse;

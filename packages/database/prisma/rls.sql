@@ -18,7 +18,7 @@ BEGIN
       'purchase_orders', 'purchase_order_lines', 'warehouses', 'locations',
       'stock_levels', 'stock_movements', 'customers', 'sales_orders',
       'sales_order_lines', 'inventory_reservations', 'shipments', 'shipment_events',
-      'refresh_tokens', 'processed_events', 'goods_receipts',
+      'shipment_exceptions', 'refresh_tokens', 'processed_events', 'goods_receipts',
       'goods_receipt_lines', 'number_sequences', 'audit_logs'
     ])
   LOOP

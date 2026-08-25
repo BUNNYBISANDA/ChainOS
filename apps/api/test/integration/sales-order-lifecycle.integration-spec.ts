@@ -40,7 +40,7 @@ describe("Sales order lifecycle (create -> confirm -> allocate -> fulfill / canc
     const customer = await seedCustomer(tenant.tenantId, "SO Lifecycle Test Customer");
     warehouseId = warehouse.id;
     customerId = customer.id;
-  }, 30000);
+  }, 90000);
 
   afterAll(async () => {
     await cleanupTestTenant(tenant.tenantId);

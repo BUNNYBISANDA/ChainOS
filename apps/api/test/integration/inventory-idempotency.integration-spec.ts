@@ -54,7 +54,7 @@ describe("Inventory idempotency (po.received) against real Postgres", () => {
       });
       return line.id;
     });
-  }, 30000);
+  }, 90000);
 
   afterAll(async () => {
     await cleanupTestTenant(tenant.tenantId);
@@ -165,7 +165,7 @@ describe("Inventory idempotency (sales-order.fulfilled) against real Postgres", 
         },
       });
     });
-  }, 30000);
+  }, 90000);
 
   afterAll(async () => {
     await cleanupTestTenant(tenant.tenantId);

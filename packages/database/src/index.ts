@@ -27,8 +27,11 @@ export async function withTenant<T>(tenantId: string, fn: (tx: Tx) => Promise<T>
   if (!UUID_RE.test(tenantId)) {
     throw new Error(`Invalid tenantId: ${tenantId}`);
   }
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(`SET LOCAL app.tenant_id = '${tenantId}'`);
-    return fn(tx);
-  });
+  return prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL app.tenant_id = '${tenantId}'`);
+      return fn(tx);
+    },
+    { maxWait: 15000, timeout: 30000 },
+  );
 }
