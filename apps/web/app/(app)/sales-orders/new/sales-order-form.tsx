@@ -73,7 +73,7 @@ export function SalesOrderForm({
       JSON.stringify(
         lines
           .filter((line) => line.productId && Number(line.qtyOrdered) > 0)
-          .map((line) => ({ productId: line.productId, qtyOrdered: Number(line.qtyOrdered) })),
+          .map((line) => ({ productId: line.productId, qtyOrdered: Number(line.qtyOrdered), unitPrice: Number(line.unitPrice) || 0 })),
       ),
     [lines],
   );
@@ -84,10 +84,6 @@ export function SalesOrderForm({
     <form action={formAction} className="space-y-6" noValidate>
       {state.error && <Banner tone="danger">{state.error}</Banner>}
       {duplicateProducts.size > 0 && <Banner tone="danger">Duplicate product lines are not allowed.</Banner>}
-      <Banner tone="warning">
-        Current backend stores sales order product quantities only. Requested delivery, currency, notes, and unit prices are ready in
-        the UI but require the Phase 2 backend contract before they can be saved.
-      </Banner>
 
       <div className="grid max-w-3xl grid-cols-2 gap-4 max-md:grid-cols-1">
         <div>
@@ -98,7 +94,7 @@ export function SalesOrderForm({
             </option>
             {customers.map((customer) => (
               <option key={customer.id} value={customer.id}>
-                {customer.name}
+                {customer.companyName}
               </option>
             ))}
           </Select>
@@ -118,15 +114,15 @@ export function SalesOrderForm({
         </div>
         <div>
           <Label htmlFor="requestedDeliveryDate">Requested delivery</Label>
-          <Input id="requestedDeliveryDate" name="requestedDeliveryDate" type="date" disabled />
+          <Input id="requestedDeliveryDate" name="requestedDeliveryDate" type="date" />
         </div>
         <div>
           <Label htmlFor="currency">Currency</Label>
-          <Input id="currency" name="currency" defaultValue="THB" disabled />
+          <Input id="currency" name="currency" defaultValue="THB" />
         </div>
         <div className="col-span-2 max-md:col-span-1">
           <Label htmlFor="notes">Notes</Label>
-          <Input id="notes" name="notes" placeholder="Backend pending" disabled />
+          <Input id="notes" name="notes" placeholder="Optional" />
         </div>
       </div>
 
@@ -182,7 +178,7 @@ export function SalesOrderForm({
                       value={line.unitPrice}
                       onChange={(event) => updateLine(line.key, { unitPrice: event.target.value })}
                       className="text-right"
-                      aria-label="Unit price, for display only until backend support lands"
+                      aria-label="Unit price"
                     />
                   </Td>
                   <Td className="text-right font-medium">{formatMoney("THB", lineTotal)}</Td>

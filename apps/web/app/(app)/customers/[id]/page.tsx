@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Edit, Plus } from "lucide-react";
 import { apiGet } from "@/lib/api";
-import type { Customer, CustomerOrder } from "@/lib/types";
+import type { Customer, SalesOrder } from "@/lib/types";
 import { PageHeader } from "@/components/page-header";
 import { ButtonLink } from "@/components/ui/button-link";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,15 +11,14 @@ import { Table, Tbody, Td, Th, Thead, Tr } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { customerStatusTone, formatStatusLabel, salesOrderStatusTone } from "@/lib/status";
 import { formatDate } from "@/lib/format";
-import { salesOrderNumber, salesOrderStatus } from "@/lib/sales-orders";
 
 export default async function CustomerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
   let customers: Customer[];
-  let orders: CustomerOrder[];
+  let orders: SalesOrder[];
   try {
-    [customers, orders] = await Promise.all([apiGet<Customer[]>("/customers"), apiGet<CustomerOrder[]>("/customer-orders")]);
+    [customers, orders] = await Promise.all([apiGet<Customer[]>("/customers"), apiGet<SalesOrder[]>("/sales-orders")]);
   } catch {
     return <ErrorState message="Could not load this customer." />;
   }
@@ -28,13 +27,13 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
   if (!customer) notFound();
 
   const customerOrders = orders.filter((order) => order.customerId === customer.id);
-  const openOrders = customerOrders.filter((order) => !["DELIVERED", "FULFILLED", "CANCELLED"].includes(salesOrderStatus(order))).length;
-  const status = customer.status ?? "ACTIVE";
+  const openOrders = customerOrders.filter((order) => !["FULFILLED", "CANCELLED"].includes(order.status)).length;
+  const status = customer.status;
 
   return (
     <>
       <PageHeader
-        title={customer.name}
+        title={customer.companyName}
         description={customer.email ?? undefined}
         action={
           <div className="flex items-center gap-2">
@@ -63,8 +62,8 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
           </CardHeader>
           <CardBody>
             <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm max-sm:grid-cols-1">
-              <Field label="Customer code">{customer.code ?? customer.id.slice(0, 8)}</Field>
-              <Field label="Company">{customer.name}</Field>
+              <Field label="Customer code">{customer.customerCode}</Field>
+              <Field label="Company">{customer.companyName}</Field>
               <Field label="Created">{formatDate(customer.createdAt)}</Field>
             </dl>
           </CardBody>
@@ -109,12 +108,12 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
                 <Tr key={order.id}>
                   <Td>
                     <Link href={`/sales-orders/${order.id}`} className="font-medium text-accent hover:underline">
-                      {salesOrderNumber(order)}
+                      {order.orderNumber}
                     </Link>
                   </Td>
                   <Td className="text-ink-soft">{formatDate(order.createdAt)}</Td>
                   <Td>
-                    <Badge tone={salesOrderStatusTone(salesOrderStatus(order))}>{formatStatusLabel(salesOrderStatus(order))}</Badge>
+                    <Badge tone={salesOrderStatusTone(order.status)}>{formatStatusLabel(order.status)}</Badge>
                   </Td>
                   <Td className="text-right">{order.lines.length}</Td>
                 </Tr>

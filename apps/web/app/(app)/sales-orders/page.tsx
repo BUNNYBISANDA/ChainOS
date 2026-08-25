@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Plus, ShoppingCart } from "lucide-react";
 import { apiGet } from "@/lib/api";
-import type { Customer, CustomerOrder, Warehouse } from "@/lib/types";
+import type { Customer, SalesOrder, Warehouse } from "@/lib/types";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { ButtonLink } from "@/components/ui/button-link";
@@ -14,19 +14,19 @@ import { Table, Tbody, Td, Th, Thead, Tr } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { formatDate, formatMoney } from "@/lib/format";
 import { formatStatusLabel, salesOrderStatusTone } from "@/lib/status";
-import { salesOrderNumber, salesOrderStatus, salesOrderTotal } from "@/lib/sales-orders";
+import { salesOrderTotal } from "@/lib/sales-orders";
 
-const STATUSES = ["DRAFT", "ALLOCATED", "FULFILLED", "SHIPPED", "DELIVERED", "CANCELLED"];
+const STATUSES = ["DRAFT", "CONFIRMED", "ALLOCATED", "PARTIALLY_FULFILLED", "FULFILLED", "CANCELLED"];
 
 export default async function SalesOrdersPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const params = await searchParams;
 
-  let orders: CustomerOrder[];
+  let orders: SalesOrder[];
   let customers: Customer[];
   let warehouses: Warehouse[];
   try {
     [orders, customers, warehouses] = await Promise.all([
-      apiGet<CustomerOrder[]>("/customer-orders"),
+      apiGet<SalesOrder[]>("/sales-orders"),
       apiGet<Customer[]>("/customers"),
       apiGet<Warehouse[]>("/warehouses"),
     ]);
@@ -40,9 +40,8 @@ export default async function SalesOrdersPage({ searchParams }: { searchParams: 
   }
 
   const filtered = orders.filter((order) => {
-    const status = salesOrderStatus(order);
     return (
-      (!params.status || status === params.status || order.status === params.status) &&
+      (!params.status || order.status === params.status) &&
       (!params.customerId || order.customerId === params.customerId) &&
       (!params.warehouseId || order.warehouseId === params.warehouseId)
     );
@@ -80,7 +79,7 @@ export default async function SalesOrdersPage({ searchParams }: { searchParams: 
               <option value="">All customers</option>
               {customers.map((customer) => (
                 <option key={customer.id} value={customer.id}>
-                  {customer.name}
+                  {customer.companyName}
                 </option>
               ))}
             </Select>
@@ -139,23 +138,22 @@ export default async function SalesOrdersPage({ searchParams }: { searchParams: 
               {filtered.map((order) => {
                 const customer = order.customer ?? customers.find((item) => item.id === order.customerId);
                 const warehouse = order.warehouse ?? warehouses.find((item) => item.id === order.warehouseId);
-                const status = salesOrderStatus(order);
                 return (
                   <Tr key={order.id}>
                     <Td>
                       <Link href={`/sales-orders/${order.id}`} className="font-medium text-accent hover:underline">
-                        {salesOrderNumber(order)}
+                        {order.orderNumber}
                       </Link>
                     </Td>
-                    <Td className="text-ink-soft">{customer?.name ?? "-"}</Td>
+                    <Td className="text-ink-soft">{customer?.companyName ?? "-"}</Td>
                     <Td className="text-ink-soft">{warehouse?.name ?? "-"}</Td>
                     <Td className="text-ink-soft">{formatDate(order.orderDate ?? order.createdAt)}</Td>
                     <Td className="text-ink-soft">
-                      {order.requestedDeliveryDate ? formatDate(order.requestedDeliveryDate) : "Backend pending"}
+                      {order.requestedDeliveryDate ? formatDate(order.requestedDeliveryDate) : "-"}
                     </Td>
                     <Td className="text-right">{formatMoney(order.currency ?? "THB", salesOrderTotal(order))}</Td>
                     <Td>
-                      <Badge tone={salesOrderStatusTone(status)}>{formatStatusLabel(status)}</Badge>
+                      <Badge tone={salesOrderStatusTone(order.status)}>{formatStatusLabel(order.status)}</Badge>
                     </Td>
                     <Td>
                       <Link href={`/sales-orders/${order.id}`} className="text-sm font-medium text-accent hover:underline">

@@ -39,11 +39,8 @@ export default async function ShipmentDetailPage({ params }: { params: Promise<{
   const NextIcon = next?.icon;
   const relatedOrder = shipment.purchaseOrder
     ? { href: `/purchase-orders/${shipment.purchaseOrder.id}`, label: shipment.purchaseOrder.poNumber }
-    : shipment.customerOrder
-      ? {
-          href: `/sales-orders/${shipment.customerOrder.id}`,
-          label: shipment.customerOrder.soNumber ?? shipment.customerOrder.customerOrderNumber ?? `SO-${shipment.customerOrder.id.slice(0, 8)}`,
-        }
+    : shipment.salesOrder
+      ? { href: `/sales-orders/${shipment.salesOrder.id}`, label: shipment.salesOrder.orderNumber }
       : null;
 
   return (
@@ -93,12 +90,14 @@ export default async function ShipmentDetailPage({ params }: { params: Promise<{
                   "-"
                 )}
               </Field>
-              <Field label="Customer">{shipment.customerOrder?.customer?.name ?? "-"}</Field>
+              <Field label="Customer">{shipment.destCustomer?.companyName ?? shipment.salesOrder?.customer?.companyName ?? "-"}</Field>
               <Field label="Origin">
                 {shipment.direction === "OUTBOUND" ? shipment.originWarehouse?.name ?? "-" : shipment.purchaseOrder?.supplier?.name ?? "-"}
               </Field>
               <Field label="Destination">
-                {shipment.direction === "OUTBOUND" ? shipment.customerOrder?.customer?.name ?? "-" : shipment.destWarehouse?.name ?? "-"}
+                {shipment.direction === "OUTBOUND"
+                  ? shipment.destCustomer?.companyName ?? shipment.salesOrder?.customer?.companyName ?? "-"
+                  : shipment.destWarehouse?.name ?? "-"}
               </Field>
               <Field label="Carrier">{shipment.carrier || "-"}</Field>
               <Field label="Tracking number">{shipment.trackingNumber || "-"}</Field>

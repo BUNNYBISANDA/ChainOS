@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Contact, Plus } from "lucide-react";
 import { apiGet } from "@/lib/api";
-import type { Customer, CustomerOrder } from "@/lib/types";
+import type { Customer, SalesOrder } from "@/lib/types";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { ButtonLink } from "@/components/ui/button-link";
@@ -20,9 +20,9 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
   const params = await searchParams;
 
   let customers: Customer[];
-  let orders: CustomerOrder[];
+  let orders: SalesOrder[];
   try {
-    [customers, orders] = await Promise.all([apiGet<Customer[]>("/customers"), apiGet<CustomerOrder[]>("/customer-orders")]);
+    [customers, orders] = await Promise.all([apiGet<Customer[]>("/customers"), apiGet<SalesOrder[]>("/sales-orders")]);
   } catch {
     return (
       <>
@@ -35,10 +35,9 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
   const search = params.search?.trim().toLowerCase() ?? "";
   const status = params.status ?? "";
   const filtered = customers.filter((customer) => {
-    const code = customer.code ?? customer.id.slice(0, 8);
-    const statusValue = customer.status ?? "ACTIVE";
-    const matchesSearch = !search || `${code} ${customer.name} ${customer.email ?? ""}`.toLowerCase().includes(search);
-    const matchesStatus = !status || statusValue === status;
+    const matchesSearch =
+      !search || `${customer.customerCode} ${customer.companyName} ${customer.email ?? ""}`.toLowerCase().includes(search);
+    const matchesStatus = !status || customer.status === status;
     return matchesSearch && matchesStatus;
   });
   const hasFilters = Boolean(search || status);
@@ -112,19 +111,18 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
             <Tbody>
               {filtered.map((customer) => {
                 const orderCount = orders.filter((order) => order.customerId === customer.id).length;
-                const statusValue = customer.status ?? "ACTIVE";
                 return (
                   <Tr key={customer.id}>
-                    <Td className="font-mono text-xs text-ink-soft">{customer.code ?? customer.id.slice(0, 8)}</Td>
+                    <Td className="font-mono text-xs text-ink-soft">{customer.customerCode}</Td>
                     <Td>
                       <Link href={`/customers/${customer.id}`} className="font-medium text-accent hover:underline">
-                        {customer.name}
+                        {customer.companyName}
                       </Link>
                     </Td>
                     <Td className="text-ink-soft">{customer.contactName ?? customer.email ?? "-"}</Td>
                     <Td className="text-ink-soft">{customer.city ?? customer.province ?? customer.country ?? "-"}</Td>
                     <Td>
-                      <Badge tone={customerStatusTone(statusValue)}>{formatStatusLabel(statusValue)}</Badge>
+                      <Badge tone={customerStatusTone(customer.status)}>{formatStatusLabel(customer.status)}</Badge>
                     </Td>
                     <Td className="text-right">{orderCount.toLocaleString()}</Td>
                     <Td className="text-ink-soft">{formatDate(customer.createdAt)}</Td>

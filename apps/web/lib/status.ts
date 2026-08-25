@@ -38,10 +38,6 @@ const SALES_ORDER_STATUS_TONE: Record<string, Tone> = {
   PARTIALLY_FULFILLED: "warning",
   FULFILLED: "success",
   CANCELLED: "danger",
-  RESERVED: "accent",
-  READY_TO_SHIP: "warning",
-  SHIPPED: "info",
-  DELIVERED: "success",
 };
 
 export function poStatusTone(status: string): Tone {

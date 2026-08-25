@@ -22,13 +22,13 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
 
   return (
     <>
-      <PageHeader title="Edit Customer" description={customer.name} />
+      <PageHeader title="Edit Customer" description={customer.companyName} />
       <Card>
         <CardHeader>
           <CardTitle>Customer details</CardTitle>
         </CardHeader>
         <CardBody>
-          <CustomerForm action={updateCustomerAction} customer={customer} submitLabel="Save Customer" editable={false} />
+          <CustomerForm action={updateCustomerAction.bind(null, customer.id)} customer={customer} submitLabel="Save Customer" />
         </CardBody>
       </Card>
     </>

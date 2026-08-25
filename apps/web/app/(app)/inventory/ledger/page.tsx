@@ -91,7 +91,7 @@ export default async function InventoryLedgerPage({
                   </Td>
                   <Td className="text-right">{formatNumber(runningTotal[i])}</Td>
                   <Td className="text-ink-faint">
-                    {m.customerOrderLineId ? (
+                    {m.salesOrderLineId ? (
                       <Link href="/sales-orders" className="hover:underline">
                         Sales order fulfillment
                       </Link>

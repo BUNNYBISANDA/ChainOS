@@ -7,13 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Banner } from "@/components/ui/banner";
 import { createOutboundShipmentAction } from "@/lib/actions/shipments";
 
-export function CreateOutboundShipmentButton({
-  salesOrderId,
-  warehouseId,
-}: {
-  salesOrderId: string;
-  warehouseId: string;
-}) {
+export function CreateOutboundShipmentButton({ salesOrderId }: { salesOrderId: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +20,7 @@ export function CreateOutboundShipmentButton({
         onClick={() => {
           setError(null);
           startTransition(async () => {
-            const result = await createOutboundShipmentAction(salesOrderId, warehouseId);
+            const result = await createOutboundShipmentAction(salesOrderId);
             if (result.error) setError(result.error);
             if (result.id) router.push(`/shipments/${result.id}`);
           });

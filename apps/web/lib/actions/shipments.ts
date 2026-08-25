@@ -15,10 +15,11 @@ export async function createInboundShipmentAction(purchaseOrderId: string): Prom
   }
 }
 
-export async function createOutboundShipmentAction(customerOrderId: string, originWarehouseId: string): Promise<{ error?: string; id?: string }> {
+export async function createOutboundShipmentAction(salesOrderId: string): Promise<{ error?: string; id?: string }> {
   try {
-    const shipment = await apiPost<{ id: string }>("/shipments", { direction: "OUTBOUND", customerOrderId, originWarehouseId });
-    revalidatePath(`/sales-orders/${customerOrderId}`);
+    // originWarehouseId/destCustomerId are derived server-side from the SalesOrder — never sent by the client.
+    const shipment = await apiPost<{ id: string }>("/shipments", { direction: "OUTBOUND", salesOrderId });
+    revalidatePath(`/sales-orders/${salesOrderId}`);
     revalidatePath("/sales-orders");
     revalidatePath("/shipments");
     return { id: shipment.id };

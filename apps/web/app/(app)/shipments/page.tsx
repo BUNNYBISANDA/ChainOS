@@ -109,11 +109,9 @@ export default async function ShipmentsPage({ searchParams }: { searchParams: Pr
                       <Link href={`/purchase-orders/${shipment.purchaseOrder.id}`} className="text-accent hover:underline">
                         {shipment.purchaseOrder.poNumber}
                       </Link>
-                    ) : shipment.customerOrder ? (
-                      <Link href={`/sales-orders/${shipment.customerOrder.id}`} className="text-accent hover:underline">
-                        {shipment.customerOrder.soNumber ??
-                          shipment.customerOrder.customerOrderNumber ??
-                          `SO-${shipment.customerOrder.id.slice(0, 8)}`}
+                    ) : shipment.salesOrder ? (
+                      <Link href={`/sales-orders/${shipment.salesOrder.id}`} className="text-accent hover:underline">
+                        {shipment.salesOrder.orderNumber}
                       </Link>
                     ) : (
                       "-"
@@ -126,7 +124,7 @@ export default async function ShipmentsPage({ searchParams }: { searchParams: Pr
                   </Td>
                   <Td className="text-ink-soft">
                     {shipment.direction === "OUTBOUND"
-                      ? shipment.customerOrder?.customer?.name ?? "-"
+                      ? shipment.destCustomer?.companyName ?? shipment.salesOrder?.customer?.companyName ?? "-"
                       : shipment.destWarehouse?.name ?? "-"}
                   </Td>
                   <Td className="text-ink-soft">{formatDate(shipment.createdAt)}</Td>

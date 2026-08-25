@@ -112,7 +112,7 @@ export class ShipmentsService {
     return withTenant(tenantId, (tx) =>
       tx.shipment.findMany({
         where: { tenantId, status: filters.status, direction: filters.direction },
-        include: { events: true, purchaseOrder: true, destWarehouse: true },
+        include: { events: true, purchaseOrder: true, salesOrder: true, destWarehouse: true, destCustomer: true },
         orderBy: { createdAt: "desc" },
       }),
     );
@@ -126,8 +126,10 @@ export class ShipmentsService {
         include: {
           events: { orderBy: { occurredAt: "asc" } },
           purchaseOrder: { include: { supplier: true } },
+          salesOrder: { include: { customer: true } },
           destWarehouse: true,
           originWarehouse: true,
+          destCustomer: true,
         },
       }),
     );

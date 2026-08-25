@@ -23,68 +23,71 @@ export function CustomerForm({
   action,
   customer,
   submitLabel,
-  editable = true,
 }: {
   action: (prevState: FormState, formData: FormData) => Promise<FormState>;
   customer?: Customer;
   submitLabel: string;
-  editable?: boolean;
 }) {
   const [state, formAction] = useActionState(action, {});
-  const disabled = !editable;
 
   return (
     <form action={formAction} className="max-w-3xl space-y-4" noValidate>
       {state.error && <Banner tone="danger">{state.error}</Banner>}
-      {!editable && <Banner tone="warning">Customer editing needs the Phase 2 backend update endpoint before changes can be saved.</Banner>}
 
       <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
         <div>
-          <Label htmlFor="name">Company name</Label>
-          <Input id="name" name="name" defaultValue={customer?.name ?? customer?.companyName ?? ""} required disabled={disabled} />
+          <Label htmlFor="companyName">Company name</Label>
+          <Input id="companyName" name="companyName" defaultValue={customer?.companyName ?? ""} required />
         </div>
         <div>
           <Label htmlFor="contactName">Contact name</Label>
-          <Input id="contactName" name="contactName" defaultValue={customer?.contactName ?? ""} disabled placeholder="Backend pending" />
+          <Input id="contactName" name="contactName" defaultValue={customer?.contactName ?? ""} />
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
         <div>
           <Label htmlFor="email">Email</Label>
-          <Input id="email" name="email" type="email" defaultValue={customer?.email ?? ""} disabled={disabled} />
+          <Input id="email" name="email" type="email" defaultValue={customer?.email ?? ""} />
         </div>
         <div>
           <Label htmlFor="phone">Phone</Label>
-          <Input id="phone" name="phone" defaultValue={customer?.phone ?? ""} disabled placeholder="Backend pending" />
+          <Input id="phone" name="phone" defaultValue={customer?.phone ?? ""} />
         </div>
       </div>
 
       <div>
         <Label htmlFor="address">Address</Label>
-        <Input id="address" name="address" defaultValue={customer?.address ?? ""} disabled placeholder="Backend pending" />
+        <Input id="address" name="address" defaultValue={customer?.address ?? ""} />
       </div>
 
       <div className="grid grid-cols-3 gap-4 max-md:grid-cols-1">
         <div>
-          <Label htmlFor="city">City / province</Label>
-          <Input id="city" name="city" defaultValue={customer?.city ?? customer?.province ?? ""} disabled placeholder="Backend pending" />
+          <Label htmlFor="city">City</Label>
+          <Input id="city" name="city" defaultValue={customer?.city ?? ""} />
+        </div>
+        <div>
+          <Label htmlFor="province">Province</Label>
+          <Input id="province" name="province" defaultValue={customer?.province ?? ""} />
         </div>
         <div>
           <Label htmlFor="country">Country</Label>
-          <Input id="country" name="country" defaultValue={customer?.country ?? ""} disabled placeholder="Backend pending" />
+          <Input id="country" name="country" defaultValue={customer?.country ?? ""} />
         </div>
-        <div>
+      </div>
+
+      {customer && (
+        <div className="max-w-xs">
           <Label htmlFor="status">Status</Label>
-          <Select id="status" name="status" defaultValue={customer?.status ?? "ACTIVE"} disabled>
+          <Select id="status" name="status" defaultValue={customer.status}>
             <option value="ACTIVE">Active</option>
             <option value="INACTIVE">Inactive</option>
             <option value="BLOCKED">Blocked</option>
           </Select>
         </div>
-      </div>
+      )}
 
-      {editable && <SubmitButton label={submitLabel} />}
+      <SubmitButton label={submitLabel} />
     </form>
   );
 }

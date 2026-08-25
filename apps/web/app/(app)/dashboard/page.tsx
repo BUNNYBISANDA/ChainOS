@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ClipboardList, Truck, Coins, Boxes, PackageSearch, PackageCheck, ShoppingCart } from "lucide-react";
 import { apiGet } from "@/lib/api";
-import type { CustomerOrder, PurchaseOrder, Shipment, StockLevel } from "@/lib/types";
+import type { PurchaseOrder, SalesOrder, Shipment, StockLevel } from "@/lib/types";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@/components/ui/table";
@@ -14,14 +14,14 @@ import { formatDate, formatNumber } from "@/lib/format";
 const OPEN_PO_STATUSES = ["DRAFT", "APPROVED", "SHIPPED", "PARTIALLY_RECEIVED"];
 const AWAITING_RECEIPT_STATUSES = ["SHIPPED", "PARTIALLY_RECEIVED"];
 const ACTIVE_SHIPMENT_STATUSES = ["CREATED", "BOOKED", "IN_TRANSIT", "ARRIVED"];
-const OPEN_SALES_ORDER_STATUSES = ["DRAFT", "RESERVED", "READY_TO_SHIP", "SHIPPED"];
+const OPEN_SALES_ORDER_STATUSES = ["DRAFT", "CONFIRMED", "ALLOCATED", "PARTIALLY_FULFILLED"];
 
 export default async function DashboardPage() {
   const [purchaseOrdersResult, shipmentsResult, stockLevelsResult, salesOrdersResult] = await Promise.allSettled([
     apiGet<PurchaseOrder[]>("/purchase-orders"),
     apiGet<Shipment[]>("/shipments"),
     apiGet<StockLevel[]>("/stock-levels"),
-    apiGet<CustomerOrder[]>("/customer-orders"),
+    apiGet<SalesOrder[]>("/sales-orders"),
   ]);
 
   if (stockLevelsResult.status === "rejected") {
@@ -47,7 +47,7 @@ export default async function DashboardPage() {
   const activeInboundShipments = activeShipments.filter((s) => s.direction === "INBOUND");
   const activeOutboundShipments = activeShipments.filter((s) => s.direction === "OUTBOUND");
   const openSalesOrders = salesOrders.filter((order) => OPEN_SALES_ORDER_STATUSES.includes(order.status));
-  const awaitingAllocation = salesOrders.filter((order) => order.status === "DRAFT");
+  const awaitingAllocation = salesOrders.filter((order) => order.status === "CONFIRMED");
   const inventoryValue = stockLevels.reduce((sum, l) => sum + l.quantityOnHand * Number(l.product.costPrice), 0);
   const availableUnits = stockLevels.reduce((sum, l) => sum + Math.max(l.quantityOnHand - l.quantityReserved, 0), 0);
   const productsInStock = new Set(stockLevels.filter((l) => l.quantityOnHand > 0).map((l) => l.productId)).size;
@@ -58,14 +58,14 @@ export default async function DashboardPage() {
 
       {hasPartialData && (
         <div className="mb-4">
-          <ErrorState message="Some workflow data could not load because the database schema is behind the current app code. Inventory data is still shown below." />
+          <ErrorState message="Some workflow data could not load. Inventory data is still shown below." />
         </div>
       )}
 
       <div className="mb-6 grid grid-cols-3 gap-4">
         <MetricCard icon={ClipboardList} label="Open Purchase Orders" value={openPOs.length} href="/purchase-orders" />
         <MetricCard icon={ShoppingCart} label="Open Sales Orders" value={openSalesOrders.length} href="/sales-orders" />
-        <MetricCard icon={PackageSearch} label="Awaiting Allocation" value={awaitingAllocation.length} href="/sales-orders?status=DRAFT" />
+        <MetricCard icon={PackageSearch} label="Awaiting Allocation" value={awaitingAllocation.length} href="/sales-orders?status=CONFIRMED" />
         <MetricCard icon={Truck} label="Inbound Shipments" value={activeInboundShipments.length} href="/shipments?direction=INBOUND" />
         <MetricCard icon={Truck} label="Outbound Shipments" value={activeOutboundShipments.length} href="/shipments?direction=OUTBOUND" />
         <MetricCard icon={Coins} label="Inventory Value" value={`฿${formatNumber(inventoryValue)}`} href="/inventory" />

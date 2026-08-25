@@ -52,20 +52,18 @@ export type CustomerStatus = "ACTIVE" | "INACTIVE" | "BLOCKED";
 
 export interface Customer {
   id: string;
-  code?: string | null;
-  name: string;
-  companyName?: string | null;
-  contactName?: string | null;
+  customerCode: string;
+  companyName: string;
+  contactName: string | null;
   email: string | null;
-  phone?: string | null;
-  address?: string | null;
-  city?: string | null;
-  province?: string | null;
-  country?: string | null;
-  status?: CustomerStatus;
+  phone: string | null;
+  address: string | null;
+  city: string | null;
+  province: string | null;
+  country: string | null;
+  status: CustomerStatus;
   createdAt: string;
-  customerOrders?: CustomerOrder[];
-  orderCount?: number;
+  updatedAt: string;
 }
 
 export type SalesOrderStatus =
@@ -76,35 +74,37 @@ export type SalesOrderStatus =
   | "FULFILLED"
   | "CANCELLED";
 
-export type CustomerOrderStatus = "DRAFT" | "RESERVED" | "READY_TO_SHIP" | "SHIPPED" | "DELIVERED" | "CANCELLED";
-
-export interface CustomerOrderLine {
+export interface SalesOrderLine {
   id: string;
   productId: string;
   qtyOrdered: number;
-  qtyReserved?: number;
+  qtyReserved: number;
   qtyFulfilled: number;
-  unitPrice?: string | null;
+  unitPrice: string;
+  remaining?: number;
+  lineTotal?: number;
   product?: Product;
 }
 
-export interface CustomerOrder {
+export interface SalesOrder {
   id: string;
-  orderNumber?: string | null;
-  customerOrderNumber?: string | null;
-  soNumber?: string | null;
+  orderNumber: string;
   customerId: string;
   warehouseId: string;
-  status: CustomerOrderStatus | SalesOrderStatus;
-  currency?: string | null;
-  notes?: string | null;
-  orderDate?: string | null;
-  requestedDeliveryDate?: string | null;
+  status: SalesOrderStatus;
+  currency: string;
+  notes: string | null;
+  orderDate: string;
+  requestedDeliveryDate: string | null;
+  confirmedByUserId: string | null;
+  confirmedAt: string | null;
+  cancelledAt: string | null;
   createdAt: string;
   customer?: Customer;
   warehouse?: Warehouse;
-  lines: CustomerOrderLine[];
+  lines: SalesOrderLine[];
   shipment?: Shipment | null;
+  totalValue?: number;
 }
 
 export type PurchaseOrderStatus = "DRAFT" | "APPROVED" | "SHIPPED" | "PARTIALLY_RECEIVED" | "RECEIVED" | "CANCELLED";
@@ -174,17 +174,19 @@ export interface Shipment {
   direction: ShipmentDirection;
   status: ShipmentStatus;
   purchaseOrderId: string | null;
-  customerOrderId: string | null;
+  salesOrderId: string | null;
   originWarehouseId: string | null;
   destWarehouseId: string | null;
+  destCustomerId: string | null;
   carrier: string | null;
   trackingNumber: string | null;
   createdAt: string;
   events?: ShipmentEvent[];
   purchaseOrder?: PurchaseOrder & { supplier?: Supplier };
-  customerOrder?: CustomerOrder & { customer?: Customer };
+  salesOrder?: SalesOrder & { customer?: Customer };
   destWarehouse?: Warehouse;
   originWarehouse?: Warehouse;
+  destCustomer?: Customer;
 }
 
 export interface StockLevel {
@@ -206,7 +208,7 @@ export interface StockMovement {
   quantityDelta: number;
   purchaseOrderLineId: string | null;
   goodsReceiptLineId: string | null;
-  customerOrderLineId: string | null;
+  salesOrderLineId: string | null;
   note: string | null;
   createdByUserId: string | null;
   createdAt: string;
