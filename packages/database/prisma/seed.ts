@@ -30,6 +30,7 @@ import {
   ShipmentExceptionStatus,
   ShipmentExceptionType,
   ShipmentStatus,
+  StockMovementType,
   TrackingEventSource,
   prisma,
   withTenant,
@@ -71,10 +72,56 @@ const ids = {
   shipmentEventLocation2: "00000000-0000-4000-8000-000000000098",
   shipmentExceptionEtaExceeded: "00000000-0000-4000-8000-000000000099",
   shipmentExceptionTrackingStale: "00000000-0000-4000-8000-00000000009a",
+
+  // Phase 4 analytics demo (see main() below) — deterministic KPI/OTIF/
+  // supplier-performance/inventory-risk fixtures, numbered well clear of
+  // both the live-walkthrough documents above and the phase 3 visibility
+  // block. Every expected value is documented inline and asserted exactly
+  // in apps/api/test/integration/analytics.integration-spec.ts.
+  supplierLate: "00000000-0000-4000-8000-0000000000b0",
+  customerOtif: "00000000-0000-4000-8000-0000000000b1",
+  productRiskA: "00000000-0000-4000-8000-0000000000b2",
+  productRiskB: "00000000-0000-4000-8000-0000000000b3",
+  poHealthy: "00000000-0000-4000-8000-0000000000b4",
+  poHealthyLine: "00000000-0000-4000-8000-0000000000b5",
+  poHealthyReceipt: "00000000-0000-4000-8000-0000000000b6",
+  poHealthyReceiptLine: "00000000-0000-4000-8000-0000000000b7",
+  poOverdue: "00000000-0000-4000-8000-0000000000b8",
+  poOverdueLine: "00000000-0000-4000-8000-0000000000b9",
+  poPartial: "00000000-0000-4000-8000-0000000000ba",
+  poPartialLine: "00000000-0000-4000-8000-0000000000bb",
+  poPartialReceipt: "00000000-0000-4000-8000-0000000000bc",
+  poPartialReceiptLine: "00000000-0000-4000-8000-0000000000bd",
+  poLateSupplier: "00000000-0000-4000-8000-0000000000be",
+  poLateSupplierLine: "00000000-0000-4000-8000-0000000000bf",
+  poLateSupplierReceipt: "00000000-0000-4000-8000-0000000000c0",
+  poLateSupplierReceiptLine: "00000000-0000-4000-8000-0000000000c1",
+  soOtifPass: "00000000-0000-4000-8000-0000000000c2",
+  soOtifPassLine: "00000000-0000-4000-8000-0000000000c3",
+  shipmentOtifPass: "00000000-0000-4000-8000-0000000000c4",
+  soOtifFailIncomplete: "00000000-0000-4000-8000-0000000000c5",
+  soOtifFailIncompleteLine: "00000000-0000-4000-8000-0000000000c6",
+  shipmentOtifFailIncomplete: "00000000-0000-4000-8000-0000000000c7",
+  soOtifFailLate: "00000000-0000-4000-8000-0000000000c8",
+  soOtifFailLateLine: "00000000-0000-4000-8000-0000000000c9",
+  shipmentOtifFailLate: "00000000-0000-4000-8000-0000000000ca",
+  stockLevelRiskA: "00000000-0000-4000-8000-0000000000cb",
+  stockMovementRiskA: "00000000-0000-4000-8000-0000000000cc",
+  soRiskDemandA: "00000000-0000-4000-8000-0000000000cd",
+  soRiskDemandALine: "00000000-0000-4000-8000-0000000000ce",
+  stockLevelRiskB: "00000000-0000-4000-8000-0000000000cf",
+  stockMovementRiskB: "00000000-0000-4000-8000-0000000000d0",
+  poRiskIncomingB: "00000000-0000-4000-8000-0000000000d1",
+  poRiskIncomingBLine: "00000000-0000-4000-8000-0000000000d2",
+  soRiskDemandB: "00000000-0000-4000-8000-0000000000d3",
+  soRiskDemandBLine: "00000000-0000-4000-8000-0000000000d4",
 } as const;
 
 /** Hours-ago helper for the shipment-visibility demo timestamps below. */
 const hoursAgo = (hours: number): Date => new Date(Date.now() - hours * 60 * 60 * 1000);
+/** Days-ago/-from-now helpers for the phase 4 analytics demo timestamps below. */
+const daysAgo = (days: number): Date => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+const daysFromNow = (days: number): Date => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 
 const ALL_PERMISSIONS = [
   "catalog:write",
@@ -94,6 +141,13 @@ const ALL_PERMISSIONS = [
   "shipment:tracking:create",
   "shipment:eta:update",
   "shipment:exceptions:read",
+  "analytics:control-tower:read",
+  "analytics:procurement:read",
+  "analytics:inventory:read",
+  "analytics:fulfillment:read",
+  "analytics:logistics:read",
+  "analytics:suppliers:read",
+  "exceptions:read",
 ];
 
 // Regular warehouse users must NOT be able to approve a PO (task spec) —
@@ -101,7 +155,23 @@ const ALL_PERMISSIONS = [
 // Manager must NOT automatically receive sales-order permissions (phase 2
 // task spec) — the commercial outbound side belongs to Sales Manager, same
 // split as Admin/Procurement own the commercial inbound side.
-const PROCUREMENT_PERMISSIONS = ["procurement:write", "po:create", "po:approve", "po:receive", "catalog:write"];
+//
+// Phase 4: "analytics:control-tower:read" and "exceptions:read" are
+// granted to every role below — the Control Tower is everyone's shared
+// operational home page, and ChainOS has no single "sees everything"
+// role besides Admin (see docs/architecture/analytics.md). Each role
+// additionally gets its own domain-specific analytics permission(s).
+const PROCUREMENT_PERMISSIONS = [
+  "procurement:write",
+  "po:create",
+  "po:approve",
+  "po:receive",
+  "catalog:write",
+  "analytics:control-tower:read",
+  "analytics:procurement:read",
+  "analytics:suppliers:read",
+  "exceptions:read",
+];
 
 // Physical/warehouse-side actions: receiving inbound, allocating/fulfilling
 // outbound — mirrors the po:receive vs po:approve split (see ADR 0006).
@@ -115,11 +185,23 @@ const WAREHOUSE_PERMISSIONS = [
   "shipment:tracking:create",
   "shipment:eta:update",
   "shipment:exceptions:read",
+  "analytics:control-tower:read",
+  "analytics:inventory:read",
+  "analytics:logistics:read",
+  "exceptions:read",
 ];
 
 // Commercial/sales-side actions: creating, confirming, cancelling a sales
 // order, and maintaining customers — never allocate/fulfill (see ADR 0006).
-const SALES_PERMISSIONS = ["customer:write", "sales-order:create", "sales-order:confirm", "sales-order:cancel"];
+const SALES_PERMISSIONS = [
+  "customer:write",
+  "sales-order:create",
+  "sales-order:confirm",
+  "sales-order:cancel",
+  "analytics:control-tower:read",
+  "analytics:fulfillment:read",
+  "exceptions:read",
+];
 
 async function main() {
   const tenant = await prisma.tenant.upsert({
@@ -130,7 +212,21 @@ async function main() {
 
   const passwordHash = await bcrypt.hash(SEED_DEV_PASSWORD, 10);
 
-  const { supplier, warehouse, product, purchaseOrder, customer, salesOrder, visibilityShipment } = await withTenant(tenant.id, async (tx) => {
+  const {
+    supplier,
+    warehouse,
+    product,
+    purchaseOrder,
+    customer,
+    salesOrder,
+    visibilityShipment,
+    supplierLate,
+    customerOtif,
+    productRiskA,
+    productRiskB,
+    poOverdue,
+    poPartial,
+  } = await withTenant(tenant.id, async (tx) => {
     // Sequential, not Promise.all: an interactive transaction is bound to
     // one connection, and concurrent queries against the same `tx` are
     // unsupported by Prisma.
@@ -221,7 +317,7 @@ async function main() {
 
     const supplier = await tx.supplier.upsert({
       where: { id: ids.supplier },
-      update: { tenantId: tenant.id, code: "SUP-001", name: "Shenzhen Components Ltd." },
+      update: { tenantId: tenant.id, code: "SUP-001", name: "Shenzhen Components Ltd.", latitude: "22.5431", longitude: "114.0579" },
       create: {
         id: ids.supplier,
         tenantId: tenant.id,
@@ -231,12 +327,33 @@ async function main() {
         contactName: "Li Wei",
         email: "sales@shenzhencomponents.example.cn",
         phone: "+86-755-555-0198",
+        latitude: "22.5431",
+        longitude: "114.0579",
+      },
+    });
+
+    // Phase 4: on-time supplier1 above, deliberately-late supplier2 below —
+    // feeds the supplier-performance table (see docs/analytics/kpi-definitions.md).
+    const supplierLate = await tx.supplier.upsert({
+      where: { id: ids.supplierLate },
+      update: { tenantId: tenant.id, code: "SUP-003", name: "Guangzhou Freight Components Co.", latitude: "23.1291", longitude: "113.2644" },
+      create: {
+        id: ids.supplierLate,
+        tenantId: tenant.id,
+        code: "SUP-003",
+        name: "Guangzhou Freight Components Co.",
+        country: "China",
+        contactName: "Chen Jing",
+        email: "sales@guangzhoufreight.example.cn",
+        phone: "+86-20-555-0177",
+        latitude: "23.1291",
+        longitude: "113.2644",
       },
     });
 
     const warehouse = await tx.warehouse.upsert({
       where: { id: ids.warehouse },
-      update: { tenantId: tenant.id, code: "BKK-DC-01", name: "Bangkok Distribution Center" },
+      update: { tenantId: tenant.id, code: "BKK-DC-01", name: "Bangkok Distribution Center", latitude: "13.7563", longitude: "100.5018" },
       create: {
         id: ids.warehouse,
         tenantId: tenant.id,
@@ -245,6 +362,8 @@ async function main() {
         address: "123 Bang Na-Trat Road, Bang Na",
         province: "Bangkok",
         country: "Thailand",
+        latitude: "13.7563",
+        longitude: "100.5018",
       },
     });
 
@@ -273,6 +392,38 @@ async function main() {
         supplierSku: "SC-USBC-65W",
         unitCost: "85.00",
         leadTimeDays: 21,
+      },
+    });
+
+    // Phase 4: two more SKUs used ONLY by the golden inventory-risk fixture
+    // below, kept off product/warehouse ELEC-001/BKK-DC-01's other demand —
+    // isolating them is what makes the fixture's expected numbers exact.
+    const productRiskA = await tx.product.upsert({
+      where: { tenantId_sku: { tenantId: tenant.id, sku: "ELEC-002" } },
+      update: { name: "Braided USB-C Cable (2m)", category: "Electronics", costPrice: "45.00" },
+      create: {
+        id: ids.productRiskA,
+        tenantId: tenant.id,
+        sku: "ELEC-002",
+        name: "Braided USB-C Cable (2m)",
+        description: "2m braided USB-C to USB-C cable, 100W rated",
+        category: "Electronics",
+        uom: "EACH",
+        costPrice: "45.00",
+      },
+    });
+    const productRiskB = await tx.product.upsert({
+      where: { tenantId_sku: { tenantId: tenant.id, sku: "ELEC-003" } },
+      update: { name: "15W Wireless Charging Pad", category: "Electronics", costPrice: "260.00" },
+      create: {
+        id: ids.productRiskB,
+        tenantId: tenant.id,
+        sku: "ELEC-003",
+        name: "15W Wireless Charging Pad",
+        description: "Qi-certified 15W wireless charging pad",
+        category: "Electronics",
+        uom: "EACH",
+        costPrice: "260.00",
       },
     });
 
@@ -313,6 +464,8 @@ async function main() {
         tenantId: tenant.id,
         customerCode: "CUS-2026-000001",
         companyName: "Bangkok Electronics Retail Co., Ltd.",
+        latitude: "13.7367",
+        longitude: "100.5606",
       },
       create: {
         id: ids.customer,
@@ -326,6 +479,29 @@ async function main() {
         city: "Bangkok",
         province: "Bangkok",
         country: "Thailand",
+        latitude: "13.7367",
+        longitude: "100.5606",
+      },
+    });
+
+    // Phase 4: second customer used only by the golden OTIF fixture below.
+    const customerOtif = await tx.customer.upsert({
+      where: { id: ids.customerOtif },
+      update: { tenantId: tenant.id, customerCode: "CUS-2026-000090", companyName: "Chiang Mai Gadget House Co., Ltd.", latitude: "18.7883", longitude: "98.9853" },
+      create: {
+        id: ids.customerOtif,
+        tenantId: tenant.id,
+        customerCode: "CUS-2026-000090",
+        companyName: "Chiang Mai Gadget House Co., Ltd.",
+        contactName: "Sirilak Boonmee",
+        email: "purchasing@cmgadgethouse.example.th",
+        phone: "+66-53-555-0121",
+        address: "45 Nimmanhaemin Road",
+        city: "Chiang Mai",
+        province: "Chiang Mai",
+        country: "Thailand",
+        latitude: "18.7883",
+        longitude: "98.9853",
       },
     });
 
@@ -563,7 +739,450 @@ async function main() {
       },
     });
 
-    return { supplier, warehouse, product, purchaseOrder, customer, salesOrder, visibilityShipment };
+    // -----------------------------------------------------------------
+    // Phase 4 analytics demo — deterministic procurement, supplier-
+    // performance, OTIF, and inventory-risk fixtures. Every number below
+    // is asserted exactly by apps/api/test/integration/analytics.integration-spec.ts;
+    // treat the comments as the source of truth for expected values.
+
+    // --- Procurement + supplier performance ---------------------------
+    // supplier1 (SUP-001): one on-time RECEIVED PO, one open overdue PO,
+    // one PARTIALLY_RECEIVED PO -> supplier1 on-time% = 1/1 = 100%.
+    // supplierLate (SUP-002): one late RECEIVED PO -> on-time% = 0/1 = 0%.
+    const poHealthy = await tx.purchaseOrder.upsert({
+      where: { id: ids.poHealthy },
+      update: {},
+      create: {
+        id: ids.poHealthy,
+        tenantId: tenant.id,
+        poNumber: "PO-2026-000100",
+        supplierId: supplier.id,
+        warehouseId: warehouse.id,
+        status: PurchaseOrderStatus.RECEIVED,
+        currency: "THB",
+        notes: "Phase 4 demo — on-time, fully received (200 units, 21 days lead time).",
+        orderDate: daysAgo(26),
+        expectedDeliveryDate: daysAgo(20),
+        approvedByUserId: ids.userProcurement,
+        approvedAt: daysAgo(25),
+        lines: {
+          connectOrCreate: {
+            where: { id: ids.poHealthyLine },
+            create: { id: ids.poHealthyLine, tenantId: tenant.id, productId: product.id, qtyOrdered: 200, qtyReceived: 200, unitCost: "85.00" },
+          },
+        },
+      },
+    });
+    await tx.goodsReceipt.upsert({
+      where: { id: ids.poHealthyReceipt },
+      update: {},
+      create: {
+        id: ids.poHealthyReceipt,
+        tenantId: tenant.id,
+        purchaseOrderId: poHealthy.id,
+        warehouseId: warehouse.id,
+        receivedByUserId: ids.userWarehouse,
+        receivedAt: daysAgo(21), // before expectedDeliveryDate (daysAgo(20)) -> on time
+        lines: {
+          connectOrCreate: {
+            where: { id: ids.poHealthyReceiptLine },
+            create: { id: ids.poHealthyReceiptLine, tenantId: tenant.id, purchaseOrderLineId: ids.poHealthyLine, productId: product.id, qtyReceived: 200 },
+          },
+        },
+      },
+    });
+
+    const poOverdue = await tx.purchaseOrder.upsert({
+      where: { id: ids.poOverdue },
+      update: {},
+      create: {
+        id: ids.poOverdue,
+        tenantId: tenant.id,
+        poNumber: "PO-2026-000101",
+        supplierId: supplier.id,
+        warehouseId: warehouse.id,
+        status: PurchaseOrderStatus.APPROVED,
+        currency: "THB",
+        notes: "Phase 4 demo — open and overdue (expected delivery date has passed).",
+        orderDate: daysAgo(12),
+        expectedDeliveryDate: daysAgo(5),
+        approvedByUserId: ids.userProcurement,
+        approvedAt: daysAgo(11),
+        lines: {
+          connectOrCreate: {
+            where: { id: ids.poOverdueLine },
+            create: { id: ids.poOverdueLine, tenantId: tenant.id, productId: product.id, qtyOrdered: 150, unitCost: "85.00" },
+          },
+        },
+      },
+    });
+
+    const poPartial = await tx.purchaseOrder.upsert({
+      where: { id: ids.poPartial },
+      update: {},
+      create: {
+        id: ids.poPartial,
+        tenantId: tenant.id,
+        poNumber: "PO-2026-000102",
+        supplierId: supplier.id,
+        warehouseId: warehouse.id,
+        status: PurchaseOrderStatus.PARTIALLY_RECEIVED,
+        currency: "THB",
+        notes: "Phase 4 demo — partially received (150 of 300), not yet overdue.",
+        orderDate: daysAgo(8),
+        expectedDeliveryDate: daysFromNow(5),
+        approvedByUserId: ids.userProcurement,
+        approvedAt: daysAgo(7),
+        lines: {
+          connectOrCreate: {
+            where: { id: ids.poPartialLine },
+            create: { id: ids.poPartialLine, tenantId: tenant.id, productId: product.id, qtyOrdered: 300, qtyReceived: 150, unitCost: "85.00" },
+          },
+        },
+      },
+    });
+    await tx.goodsReceipt.upsert({
+      where: { id: ids.poPartialReceipt },
+      update: {},
+      create: {
+        id: ids.poPartialReceipt,
+        tenantId: tenant.id,
+        purchaseOrderId: poPartial.id,
+        warehouseId: warehouse.id,
+        receivedByUserId: ids.userWarehouse,
+        receivedAt: daysAgo(2),
+        lines: {
+          connectOrCreate: {
+            where: { id: ids.poPartialReceiptLine },
+            create: { id: ids.poPartialReceiptLine, tenantId: tenant.id, purchaseOrderLineId: ids.poPartialLine, productId: product.id, qtyReceived: 150 },
+          },
+        },
+      },
+    });
+
+    const poLateSupplier = await tx.purchaseOrder.upsert({
+      where: { id: ids.poLateSupplier },
+      update: {},
+      create: {
+        id: ids.poLateSupplier,
+        tenantId: tenant.id,
+        poNumber: "PO-2026-000103",
+        supplierId: supplierLate.id,
+        warehouseId: warehouse.id,
+        status: PurchaseOrderStatus.RECEIVED,
+        currency: "THB",
+        notes: "Phase 4 demo — supplier OTIF fixture, received 5 days late.",
+        orderDate: daysAgo(31),
+        expectedDeliveryDate: daysAgo(20),
+        approvedByUserId: ids.userProcurement,
+        approvedAt: daysAgo(30),
+        lines: {
+          connectOrCreate: {
+            where: { id: ids.poLateSupplierLine },
+            create: { id: ids.poLateSupplierLine, tenantId: tenant.id, productId: product.id, qtyOrdered: 100, qtyReceived: 100, unitCost: "88.00" },
+          },
+        },
+      },
+    });
+    await tx.goodsReceipt.upsert({
+      where: { id: ids.poLateSupplierReceipt },
+      update: {},
+      create: {
+        id: ids.poLateSupplierReceipt,
+        tenantId: tenant.id,
+        purchaseOrderId: poLateSupplier.id,
+        warehouseId: warehouse.id,
+        receivedByUserId: ids.userWarehouse,
+        receivedAt: daysAgo(15), // 5 days after expectedDeliveryDate (daysAgo(20)) -> late
+        lines: {
+          connectOrCreate: {
+            where: { id: ids.poLateSupplierReceiptLine },
+            create: { id: ids.poLateSupplierReceiptLine, tenantId: tenant.id, purchaseOrderLineId: ids.poLateSupplierLine, productId: product.id, qtyReceived: 100 },
+          },
+        },
+      },
+    });
+
+    // Physical receipts for the three RECEIVED POs above (450 units total)
+    // — keeps ELEC-001's inventory ledger consistent with what Procurement
+    // recorded, same as InventoryService.handlePoReceived would post.
+    for (const receipt of [
+      { movementId: "00000000-0000-4000-8000-0000000000d5", lineId: ids.poHealthyLine, receiptLineId: ids.poHealthyReceiptLine, qty: 200 },
+      { movementId: "00000000-0000-4000-8000-0000000000d6", lineId: ids.poPartialLine, receiptLineId: ids.poPartialReceiptLine, qty: 150 },
+      { movementId: "00000000-0000-4000-8000-0000000000d7", lineId: ids.poLateSupplierLine, receiptLineId: ids.poLateSupplierReceiptLine, qty: 100 },
+    ]) {
+      await tx.stockMovement.upsert({
+        where: { id: receipt.movementId },
+        update: {},
+        create: {
+          id: receipt.movementId,
+          tenantId: tenant.id,
+          productId: product.id,
+          warehouseId: warehouse.id,
+          type: StockMovementType.RECEIPT,
+          quantityDelta: receipt.qty,
+          purchaseOrderLineId: receipt.lineId,
+          goodsReceiptLineId: receipt.receiptLineId,
+        },
+      });
+    }
+
+    // --- Customer OTIF golden fixture ----------------------------------
+    // Three delivered orders -> OTIF = 1 pass / 3 eligible = 33.33% (spec §50).
+    // Requested delivery date is the same for all three (daysAgo(10)):
+    //   A: 100/100 delivered daysAgo(11) (before requested) -> PASS
+    //   B:  80/100 delivered daysAgo(11) (before requested, incomplete) -> FAIL (incomplete)
+    //   C: 100/100 delivered daysAgo(8)  (2 days after requested) -> FAIL (late)
+    const requestedDeliveryDate = daysAgo(10);
+
+    const soOtifPass = await tx.salesOrder.upsert({
+      where: { id: ids.soOtifPass },
+      update: {},
+      create: {
+        id: ids.soOtifPass,
+        tenantId: tenant.id,
+        orderNumber: "SO-2026-000100",
+        customerId: customerOtif.id,
+        warehouseId: warehouse.id,
+        orderDate: daysAgo(15),
+        requestedDeliveryDate,
+        currency: "THB",
+        status: SalesOrderStatus.FULFILLED,
+        notes: "Phase 4 OTIF demo — on time, in full.",
+        confirmedByUserId: ids.userSales,
+        confirmedAt: daysAgo(14),
+        lines: {
+          connectOrCreate: {
+            where: { id: ids.soOtifPassLine },
+            create: { id: ids.soOtifPassLine, tenantId: tenant.id, productId: product.id, qtyOrdered: 100, qtyFulfilled: 100, unitPrice: "120.00" },
+          },
+        },
+      },
+    });
+    const soOtifFailIncomplete = await tx.salesOrder.upsert({
+      where: { id: ids.soOtifFailIncomplete },
+      update: {},
+      create: {
+        id: ids.soOtifFailIncomplete,
+        tenantId: tenant.id,
+        orderNumber: "SO-2026-000101",
+        customerId: customerOtif.id,
+        warehouseId: warehouse.id,
+        orderDate: daysAgo(15),
+        requestedDeliveryDate,
+        currency: "THB",
+        status: SalesOrderStatus.PARTIALLY_FULFILLED,
+        notes: "Phase 4 OTIF demo — delivered on time but incomplete (80 of 100).",
+        confirmedByUserId: ids.userSales,
+        confirmedAt: daysAgo(14),
+        lines: {
+          connectOrCreate: {
+            where: { id: ids.soOtifFailIncompleteLine },
+            create: { id: ids.soOtifFailIncompleteLine, tenantId: tenant.id, productId: product.id, qtyOrdered: 100, qtyFulfilled: 80, unitPrice: "120.00" },
+          },
+        },
+      },
+    });
+    const soOtifFailLate = await tx.salesOrder.upsert({
+      where: { id: ids.soOtifFailLate },
+      update: {},
+      create: {
+        id: ids.soOtifFailLate,
+        tenantId: tenant.id,
+        orderNumber: "SO-2026-000102",
+        customerId: customerOtif.id,
+        warehouseId: warehouse.id,
+        orderDate: daysAgo(15),
+        requestedDeliveryDate,
+        currency: "THB",
+        status: SalesOrderStatus.FULFILLED,
+        notes: "Phase 4 OTIF demo — delivered in full but 2 days late.",
+        confirmedByUserId: ids.userSales,
+        confirmedAt: daysAgo(14),
+        lines: {
+          connectOrCreate: {
+            where: { id: ids.soOtifFailLateLine },
+            create: { id: ids.soOtifFailLateLine, tenantId: tenant.id, productId: product.id, qtyOrdered: 100, qtyFulfilled: 100, unitPrice: "120.00" },
+          },
+        },
+      },
+    });
+
+    for (const shipment of [
+      { id: ids.shipmentOtifPass, number: "SHP-2026-000100", salesOrderId: soOtifPass.id, deliveredAt: daysAgo(11) },
+      { id: ids.shipmentOtifFailIncomplete, number: "SHP-2026-000101", salesOrderId: soOtifFailIncomplete.id, deliveredAt: daysAgo(11) },
+      { id: ids.shipmentOtifFailLate, number: "SHP-2026-000102", salesOrderId: soOtifFailLate.id, deliveredAt: daysAgo(8) },
+    ]) {
+      await tx.shipment.upsert({
+        where: { id: shipment.id },
+        update: {},
+        create: {
+          id: shipment.id,
+          tenantId: tenant.id,
+          shipmentNumber: shipment.number,
+          direction: ShipmentDirection.OUTBOUND,
+          status: ShipmentStatus.DELIVERED,
+          salesOrderId: shipment.salesOrderId,
+          originWarehouseId: warehouse.id,
+          destCustomerId: customerOtif.id,
+          originName: warehouse.name,
+          destinationName: customerOtif.companyName,
+          plannedDepartureAt: new Date(shipment.deliveredAt.getTime() - 3 * 24 * 60 * 60 * 1000),
+          plannedArrivalAt: requestedDeliveryDate,
+          actualDepartureAt: new Date(shipment.deliveredAt.getTime() - 2 * 24 * 60 * 60 * 1000),
+          actualArrivalAt: shipment.deliveredAt,
+          estimatedArrivalAt: requestedDeliveryDate,
+          deliveredAt: shipment.deliveredAt,
+          lastTrackingEventAt: shipment.deliveredAt,
+          createdAt: new Date(shipment.deliveredAt.getTime() - 4 * 24 * 60 * 60 * 1000),
+        },
+      });
+    }
+
+    // Physical fulfillment ledger for the three OTIF orders (280 units
+    // total). Reservation bookkeeping is deliberately not replayed for
+    // these closed historical fixtures (documented seed simplification —
+    // see docs/analytics/kpi-definitions.md); OTIF itself only reads
+    // SalesOrder.status and Shipment.deliveredAt, neither of which depends
+    // on StockLevel.quantityReserved.
+    for (const fulfillment of [
+      { movementId: "00000000-0000-4000-8000-0000000000d8", lineId: ids.soOtifPassLine, qty: 100 },
+      { movementId: "00000000-0000-4000-8000-0000000000d9", lineId: ids.soOtifFailIncompleteLine, qty: 80 },
+      { movementId: "00000000-0000-4000-8000-0000000000da", lineId: ids.soOtifFailLateLine, qty: 100 },
+    ]) {
+      await tx.stockMovement.upsert({
+        where: { id: fulfillment.movementId },
+        update: {},
+        create: {
+          id: fulfillment.movementId,
+          tenantId: tenant.id,
+          productId: product.id,
+          warehouseId: warehouse.id,
+          type: StockMovementType.FULFILLMENT,
+          quantityDelta: -fulfillment.qty,
+          salesOrderLineId: fulfillment.lineId,
+        },
+      });
+    }
+
+    const elecStockLevel = await tx.stockLevel.findFirst({ where: { tenantId: tenant.id, productId: product.id, warehouseId: warehouse.id, locationId: null } });
+    const elecOnHand = 200 + 150 + 100 - (100 + 80 + 100); // three receipts above minus three fulfillments = 170
+    if (elecStockLevel) {
+      await tx.stockLevel.update({ where: { id: elecStockLevel.id }, data: { quantityOnHand: elecOnHand } });
+    } else {
+      await tx.stockLevel.create({ data: { tenantId: tenant.id, productId: product.id, warehouseId: warehouse.id, quantityOnHand: elecOnHand } });
+    }
+
+    // --- Inventory risk golden fixture (spec §52) ----------------------
+    // SKU A (ELEC-002): Available 300, Incoming 0, Demand 800 -> Projected -500 -> PROJECTED_STOCKOUT.
+    await tx.stockLevel.upsert({
+      where: { id: ids.stockLevelRiskA },
+      update: { quantityOnHand: 300, quantityReserved: 0 },
+      create: { id: ids.stockLevelRiskA, tenantId: tenant.id, productId: productRiskA.id, warehouseId: warehouse.id, quantityOnHand: 300, quantityReserved: 0 },
+    });
+    await tx.stockMovement.upsert({
+      where: { id: ids.stockMovementRiskA },
+      update: {},
+      create: { id: ids.stockMovementRiskA, tenantId: tenant.id, productId: productRiskA.id, warehouseId: warehouse.id, type: StockMovementType.RECEIPT, quantityDelta: 300 },
+    });
+    await tx.salesOrder.upsert({
+      where: { id: ids.soRiskDemandA },
+      update: {},
+      create: {
+        id: ids.soRiskDemandA,
+        tenantId: tenant.id,
+        orderNumber: "SO-2026-000103",
+        customerId: customer.id,
+        warehouseId: warehouse.id,
+        orderDate: daysAgo(3),
+        currency: "THB",
+        status: SalesOrderStatus.CONFIRMED,
+        notes: "Phase 4 inventory-risk demo — SKU A (PROJECTED_STOCKOUT).",
+        confirmedByUserId: ids.userSales,
+        confirmedAt: daysAgo(3),
+        lines: {
+          connectOrCreate: {
+            where: { id: ids.soRiskDemandALine },
+            create: { id: ids.soRiskDemandALine, tenantId: tenant.id, productId: productRiskA.id, qtyOrdered: 800, unitPrice: "60.00" },
+          },
+        },
+      },
+    });
+
+    // SKU B (ELEC-003): Available 1000, Incoming 500, Demand 1200 -> Projected 300 -> HEALTHY.
+    await tx.stockLevel.upsert({
+      where: { id: ids.stockLevelRiskB },
+      update: { quantityOnHand: 1000, quantityReserved: 0 },
+      create: { id: ids.stockLevelRiskB, tenantId: tenant.id, productId: productRiskB.id, warehouseId: warehouse.id, quantityOnHand: 1000, quantityReserved: 0 },
+    });
+    await tx.stockMovement.upsert({
+      where: { id: ids.stockMovementRiskB },
+      update: {},
+      create: { id: ids.stockMovementRiskB, tenantId: tenant.id, productId: productRiskB.id, warehouseId: warehouse.id, type: StockMovementType.RECEIPT, quantityDelta: 1000 },
+    });
+    await tx.purchaseOrder.upsert({
+      where: { id: ids.poRiskIncomingB },
+      update: {},
+      create: {
+        id: ids.poRiskIncomingB,
+        tenantId: tenant.id,
+        poNumber: "PO-2026-000104",
+        supplierId: supplier.id,
+        warehouseId: warehouse.id,
+        status: PurchaseOrderStatus.APPROVED,
+        currency: "THB",
+        notes: "Phase 4 inventory-risk demo — SKU B incoming supply.",
+        orderDate: daysAgo(4),
+        expectedDeliveryDate: daysFromNow(10),
+        approvedByUserId: ids.userProcurement,
+        approvedAt: daysAgo(3),
+        lines: {
+          connectOrCreate: {
+            where: { id: ids.poRiskIncomingBLine },
+            create: { id: ids.poRiskIncomingBLine, tenantId: tenant.id, productId: productRiskB.id, qtyOrdered: 500, unitCost: "220.00" },
+          },
+        },
+      },
+    });
+    await tx.salesOrder.upsert({
+      where: { id: ids.soRiskDemandB },
+      update: {},
+      create: {
+        id: ids.soRiskDemandB,
+        tenantId: tenant.id,
+        orderNumber: "SO-2026-000104",
+        customerId: customer.id,
+        warehouseId: warehouse.id,
+        orderDate: daysAgo(3),
+        currency: "THB",
+        status: SalesOrderStatus.CONFIRMED,
+        notes: "Phase 4 inventory-risk demo — SKU B (HEALTHY).",
+        confirmedByUserId: ids.userSales,
+        confirmedAt: daysAgo(3),
+        lines: {
+          connectOrCreate: {
+            where: { id: ids.soRiskDemandBLine },
+            create: { id: ids.soRiskDemandBLine, tenantId: tenant.id, productId: productRiskB.id, qtyOrdered: 1200, unitPrice: "320.00" },
+          },
+        },
+      },
+    });
+
+    return {
+      supplier,
+      warehouse,
+      product,
+      purchaseOrder,
+      customer,
+      salesOrder,
+      visibilityShipment,
+      supplierLate,
+      customerOtif,
+      productRiskA,
+      productRiskB,
+      poOverdue,
+      poPartial,
+    };
   });
 
   console.log("Seeded:");
@@ -585,6 +1204,15 @@ async function main() {
   console.log("Inbound demo:  approve -> create inbound shipment -> book -> dispatch -> arrive -> receive 600 -> receive 400.");
   console.log("Outbound demo: confirm -> allocate -> create outbound shipment -> book/dispatch -> fulfill 200 -> fulfill 100.");
   console.log("Visibility demo: open Shipments -> SHP-2026-000090 to see the timeline, map, ETA history, and open exceptions.");
+  console.log("");
+  console.log("Phase 4 analytics demo (see docs/analytics/kpi-definitions.md for exact expected values):");
+  console.log(`  supplier (late) ${supplierLate.name} (${supplierLate.code}) — one PO received 5 days late, OTIF 0%`);
+  console.log(`  customer (OTIF) ${customerOtif.companyName} (${customerOtif.customerCode}) — 3 delivered orders, OTIF 33.33%`);
+  console.log(`  risk SKU A      ${productRiskA.sku} — 300 available / 0 incoming / 800 demand -> PROJECTED_STOCKOUT`);
+  console.log(`  risk SKU B      ${productRiskB.sku} — 1000 available / 500 incoming / 1200 demand -> HEALTHY`);
+  console.log(`  overdue PO      ${poOverdue.poNumber} — expected ${poOverdue.expectedDeliveryDate?.toISOString().slice(0, 10)}, still open`);
+  console.log(`  partial PO      ${poPartial.poNumber} — 150 of 300 received`);
+  console.log("Open /control-tower to see these fixtures drive the KPIs, or /analytics/suppliers and /inventory/risk directly.");
 }
 
 main()

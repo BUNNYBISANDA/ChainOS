@@ -34,6 +34,21 @@ const TRANSITIONS: Record<SalesOrderStatus, SalesOrderStatus[]> = {
 
 export const FULFILLABLE_STATUSES: SalesOrderStatus[] = [SalesOrderStatus.ALLOCATED, SalesOrderStatus.PARTIALLY_FULFILLED];
 
+/** Not yet fully fulfilled or cancelled — used for "Open SO" KPIs (phase 4 analytics) and dashboards alike. */
+export const OPEN_SO_STATUSES: SalesOrderStatus[] = [
+  SalesOrderStatus.DRAFT,
+  SalesOrderStatus.CONFIRMED,
+  SalesOrderStatus.ALLOCATED,
+  SalesOrderStatus.PARTIALLY_FULFILLED,
+];
+
+/** Committed but not yet fully fulfilled — the "Demand" side of the inventory-risk projection (phase 4 analytics). DRAFT is excluded: not yet commercially accepted. */
+export const OPEN_DEMAND_SO_STATUSES: SalesOrderStatus[] = [
+  SalesOrderStatus.CONFIRMED,
+  SalesOrderStatus.ALLOCATED,
+  SalesOrderStatus.PARTIALLY_FULFILLED,
+];
+
 export function assertSalesOrderTransition(current: SalesOrderStatus, target: SalesOrderStatus): void {
   if (!TRANSITIONS[current].includes(target)) {
     throw new BadRequestAppException(

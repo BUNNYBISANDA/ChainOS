@@ -305,6 +305,7 @@ export class ShipmentsService {
       const data: Prisma.ShipmentUpdateInput = { status: target };
       if (target === ShipmentStatus.IN_TRANSIT) data.actualDepartureAt = shipment.actualDepartureAt ?? now;
       if (target === ShipmentStatus.ARRIVED || target === ShipmentStatus.DELIVERED) data.actualArrivalAt = shipment.actualArrivalAt ?? now;
+      if (target === ShipmentStatus.DELIVERED) data.deliveredAt = now;
 
       const updated = await tx.shipment.update({ where: { id }, data });
       await this.appendShipmentEvent(tx, tenantId, id, {

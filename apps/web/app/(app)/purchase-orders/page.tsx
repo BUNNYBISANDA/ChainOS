@@ -30,6 +30,7 @@ export default async function PurchaseOrdersPage({
   if (params.warehouseId) query.set("warehouseId", params.warehouseId);
   if (params.from) query.set("from", params.from);
   if (params.to) query.set("to", params.to);
+  if (params.overdue === "true") query.set("overdue", "true");
 
   let orders: PurchaseOrder[];
   let suppliers: Supplier[];
@@ -49,7 +50,7 @@ export default async function PurchaseOrdersPage({
     );
   }
 
-  const hasFilters = Boolean(params.status || params.supplierId || params.warehouseId || params.from || params.to);
+  const hasFilters = Boolean(params.status || params.supplierId || params.warehouseId || params.from || params.to || params.overdue);
 
   return (
     <>

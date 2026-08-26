@@ -38,7 +38,15 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
 
   return (
     <>
-      <PageHeader title="Inventory" description={`${levels.length} stock line${levels.length === 1 ? "" : "s"} · ฿${formatNumber(totalValue)} on hand`} />
+      <PageHeader
+        title="Inventory"
+        description={`${levels.length} stock line${levels.length === 1 ? "" : "s"} · ฿${formatNumber(totalValue)} on hand`}
+        action={
+          <ButtonLink href="/inventory/risk" variant="secondary">
+            View Inventory Risk
+          </ButtonLink>
+        }
+      />
 
       <Card className="mb-4">
         <form method="GET" className="flex flex-wrap items-end gap-3 px-5 py-4">

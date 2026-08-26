@@ -22,3 +22,9 @@ export function formatMoney(currency: string, value: number): string {
 export function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
+
+/** `null`/`undefined` renders as "N/A" — never "0%" for a metric with no eligible denominator (spec §44). */
+export function formatPercent(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "N/A";
+  return `${value.toFixed(1)}%`;
+}

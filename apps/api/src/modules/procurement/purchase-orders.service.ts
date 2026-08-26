@@ -10,7 +10,7 @@ import { claimEvent } from "../../common/events/claim-event";
 import { nextDocumentNumber } from "../../common/numbering";
 import { DomainEvent, PoApprovedPayload, PoReceivedPayload, ShipmentCreatedPayload } from "../../common/events/domain-events";
 import { CreatePurchaseOrderDto, ReceivePurchaseOrderDto } from "./dto/create-purchase-order.dto";
-import { RECEIVABLE_STATUSES, assertPoTransition } from "./purchase-order-lifecycle";
+import { OPEN_PO_STATUSES, RECEIVABLE_STATUSES, assertPoTransition } from "./purchase-order-lifecycle";
 
 @Injectable()
 export class PurchaseOrdersService {
@@ -50,19 +50,21 @@ export class PurchaseOrdersService {
     });
   }
 
-  list(filters: { status?: PurchaseOrderStatus; supplierId?: string; warehouseId?: string; from?: string; to?: string }) {
+  /** `overdue` (phase 4 analytics drill-down): open PO whose expected delivery date has passed — see docs/analytics/kpi-definitions.md. */
+  list(filters: { status?: PurchaseOrderStatus; supplierId?: string; warehouseId?: string; from?: string; to?: string; overdue?: boolean }) {
     const { tenantId } = this.tenantContext.get();
     return withTenant(tenantId, (tx) =>
       tx.purchaseOrder.findMany({
         where: {
           tenantId,
-          status: filters.status,
+          status: filters.overdue ? { in: OPEN_PO_STATUSES } : filters.status,
           supplierId: filters.supplierId,
           warehouseId: filters.warehouseId,
           orderDate: {
             gte: filters.from ? new Date(filters.from) : undefined,
             lte: filters.to ? new Date(filters.to) : undefined,
           },
+          expectedDeliveryDate: filters.overdue ? { lt: new Date() } : undefined,
         },
         include: { lines: true, supplier: true, warehouse: true, shipment: true },
         orderBy: { createdAt: "desc" },

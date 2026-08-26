@@ -1,11 +1,13 @@
 import { redirect } from "next/navigation";
 import {
+  AlertTriangle,
   Boxes,
   Building2,
   ClipboardList,
   Contact,
   LayoutDashboard,
   Package,
+  Radar,
   ShoppingCart,
   Truck,
   Warehouse as WarehouseIcon,
@@ -32,6 +34,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <NavLink href="/dashboard" icon={<LayoutDashboard className="size-4" aria-hidden />}>
             Dashboard
           </NavLink>
+          <NavLink href="/control-tower" icon={<Radar className="size-4" aria-hidden />}>
+            Control Tower
+          </NavLink>
           <NavLink href="/suppliers" icon={<Building2 className="size-4" aria-hidden />}>
             Suppliers
           </NavLink>
@@ -55,6 +60,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </NavLink>
           <NavLink href="/shipments" icon={<Truck className="size-4" aria-hidden />}>
             Shipments
+          </NavLink>
+          <NavLink href="/exceptions" icon={<AlertTriangle className="size-4" aria-hidden />}>
+            Exceptions
           </NavLink>
         </nav>
 

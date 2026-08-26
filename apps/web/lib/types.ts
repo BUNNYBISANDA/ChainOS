@@ -7,6 +7,8 @@ export interface Supplier {
   email: string | null;
   phone: string | null;
   status: "ACTIVE" | "INACTIVE" | "BLOCKED";
+  latitude: string | number | null;
+  longitude: string | number | null;
   createdAt: string;
 }
 
@@ -44,6 +46,8 @@ export interface Warehouse {
   address: string | null;
   province: string | null;
   country: string | null;
+  latitude: string | number | null;
+  longitude: string | number | null;
   status: WarehouseStatus;
   createdAt: string;
 }
@@ -61,6 +65,8 @@ export interface Customer {
   city: string | null;
   province: string | null;
   country: string | null;
+  latitude: string | number | null;
+  longitude: string | number | null;
   status: CustomerStatus;
   createdAt: string;
   updatedAt: string;
@@ -232,6 +238,7 @@ export interface Shipment {
   plannedArrivalAt: string | null;
   actualDepartureAt: string | null;
   actualArrivalAt: string | null;
+  deliveredAt: string | null;
   estimatedArrivalAt: string | null;
   lastTrackingEventAt: string | null;
   createdAt: string;
@@ -269,4 +276,157 @@ export interface StockMovement {
   createdAt: string;
   product: Product;
   warehouse: Warehouse;
+}
+
+// ---------------------------------------------------------------------
+// Analytics (phase 4) — see docs/analytics/kpi-definitions.md
+// ---------------------------------------------------------------------
+
+export interface Paginated<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface ProcurementSummary {
+  openPurchaseOrders: number;
+  openPurchaseOrderValue: number;
+  overduePurchaseOrders: number;
+  partiallyReceivedPurchaseOrders: number;
+}
+
+export interface PoValueTrendPoint {
+  bucket: string;
+  value: number;
+}
+
+export type InventoryRiskLevel = "STOCKOUT" | "PROJECTED_STOCKOUT" | "HEALTHY";
+
+export interface InventoryRiskRow {
+  productId: string;
+  sku: string;
+  productName: string;
+  warehouseId: string;
+  warehouseName: string;
+  onHand: number;
+  reserved: number;
+  available: number;
+  incoming: number;
+  demand: number;
+  projected: number;
+  riskLevel: InventoryRiskLevel;
+}
+
+export interface InventorySummary {
+  inventoryValue: number;
+  productsMissingCost: number;
+  skusZeroAvailable: number;
+  skusAtRisk: number;
+}
+
+export interface InventoryMovementPoint {
+  bucket: string;
+  inbound: number;
+  outbound: number;
+  net: number;
+}
+
+export interface FulfillmentSummary {
+  openSalesOrders: number;
+  awaitingAllocation: number;
+  partiallyFulfilled: number;
+  fulfilled: number;
+  customerOtifPercent: number | null;
+  otifEligibleOrders: number;
+  otifSuccessfulOrders: number;
+  ordersMissingRequestedDate: number;
+}
+
+export interface OtifTrendPoint {
+  bucket: string;
+  eligible: number;
+  successful: number;
+  otifPercent: number | null;
+}
+
+export interface LogisticsSummary {
+  activeShipments: number;
+  inboundActive: number;
+  outboundActive: number;
+  delayedShipments: number;
+  needsAttentionShipments: number;
+  avgTransitHours: number | null;
+  onTimeDeliveryPercent: number | null;
+}
+
+export interface SupplierPerformanceRow {
+  supplierId: string;
+  supplierCode: string;
+  supplierName: string;
+  poCount: number;
+  totalSpend: number;
+  openPoCount: number;
+  latePoCount: number;
+  avgLeadTimeDays: number | null;
+  onTimePercent: number | null;
+  otifPercent: number | null;
+}
+
+export type ExceptionDomain = "PROCUREMENT" | "INVENTORY" | "FULFILLMENT" | "LOGISTICS";
+export type ExceptionSeverity = "INFO" | "WARNING" | "CRITICAL";
+
+export interface ExceptionItem {
+  id: string;
+  domain: ExceptionDomain;
+  type: string;
+  severity: ExceptionSeverity;
+  message: string;
+  entityType: string;
+  entityId: string;
+  entityLabel: string;
+  detectedAt: string;
+  href: string;
+}
+
+export interface DataQualityIssue {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface NetworkPoint {
+  id: string;
+  label: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface NetworkShipmentPoint {
+  id: string;
+  shipmentNumber: string;
+  direction: ShipmentDirection;
+  status: ShipmentStatus;
+  latitude: number;
+  longitude: number;
+}
+
+export interface ControlTowerSummary {
+  period: { from: string; to: string; preset: string };
+  warehouseId: string | null;
+  lastUpdated: string;
+  procurement: ProcurementSummary;
+  inventory: InventorySummary;
+  fulfillment: FulfillmentSummary;
+  logistics: LogisticsSummary;
+  service: { customerOtifPercent: number | null };
+  exceptions: { critical: number; warning: number; top: ExceptionItem[] };
+  topSuppliers: SupplierPerformanceRow[];
+  dataQuality: { total: number; issues: DataQualityIssue[] };
+  network: {
+    suppliers: NetworkPoint[];
+    warehouses: NetworkPoint[];
+    customers: NetworkPoint[];
+    activeShipments: NetworkShipmentPoint[];
+  };
 }

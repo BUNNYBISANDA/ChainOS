@@ -11,6 +11,7 @@ import { ProcurementModule } from "./modules/procurement/procurement.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { FulfillmentModule } from "./modules/fulfillment/fulfillment.module";
 import { LogisticsModule } from "./modules/logistics/logistics.module";
+import { AnalyticsModule } from "./modules/analytics/analytics.module";
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { LogisticsModule } from "./modules/logistics/logistics.module";
     InventoryModule,
     FulfillmentModule,
     LogisticsModule,
+    AnalyticsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: PermissionsGuard }],
 })

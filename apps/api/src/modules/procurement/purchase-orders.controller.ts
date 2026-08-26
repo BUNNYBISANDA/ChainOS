@@ -21,8 +21,9 @@ export class PurchaseOrdersController {
     @Query("warehouseId") warehouseId?: string,
     @Query("from") from?: string,
     @Query("to") to?: string,
+    @Query("overdue") overdue?: string,
   ) {
-    return this.purchaseOrders.list({ status, supplierId, warehouseId, from, to });
+    return this.purchaseOrders.list({ status, supplierId, warehouseId, from, to, overdue: overdue === "true" ? true : undefined });
   }
 
   @Get(":id")

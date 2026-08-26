@@ -11,7 +11,7 @@ import { DomainEvent, SalesOrderAllocatedPayload, SalesOrderFulfilledPayload } f
 import { InventoryService } from "../inventory/inventory.service";
 import { CreateSalesOrderDto } from "./dto/create-sales-order.dto";
 import { FulfillSalesOrderDto } from "./dto/fulfill-sales-order.dto";
-import { FULFILLABLE_STATUSES, assertSalesOrderTransition } from "./sales-order-lifecycle";
+import { FULFILLABLE_STATUSES, OPEN_SO_STATUSES, assertSalesOrderTransition } from "./sales-order-lifecycle";
 
 /**
  * Owns: sales orders, order lines (manifest, phase 2 outbound slice — see
@@ -60,15 +60,17 @@ export class SalesOrdersService {
     });
   }
 
-  list(filters: { status?: SalesOrderStatus; customerId?: string; warehouseId?: string } = {}) {
+  /** `overdue` (phase 4 analytics drill-down): open SO whose requested delivery date has passed — see docs/analytics/kpi-definitions.md. */
+  list(filters: { status?: SalesOrderStatus; customerId?: string; warehouseId?: string; overdue?: boolean } = {}) {
     const { tenantId } = this.tenantContext.get();
     return withTenant(tenantId, (tx) =>
       tx.salesOrder.findMany({
         where: {
           tenantId,
-          status: filters.status,
+          status: filters.overdue ? { in: OPEN_SO_STATUSES } : filters.status,
           customerId: filters.customerId,
           warehouseId: filters.warehouseId,
+          requestedDeliveryDate: filters.overdue ? { lt: new Date() } : undefined,
         },
         include: { lines: true, customer: true, warehouse: true, shipment: true },
         orderBy: { createdAt: "desc" },

@@ -20,8 +20,9 @@ export class SalesOrdersController {
     @Query("status") status?: SalesOrderStatus,
     @Query("customerId") customerId?: string,
     @Query("warehouseId") warehouseId?: string,
+    @Query("overdue") overdue?: string,
   ) {
-    return this.salesOrders.list({ status, customerId, warehouseId });
+    return this.salesOrders.list({ status, customerId, warehouseId, overdue: overdue === "true" ? true : undefined });
   }
 
   @Get(":id")

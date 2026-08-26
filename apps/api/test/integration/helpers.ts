@@ -27,6 +27,13 @@ export const ALL_PERMISSIONS = [
   "shipment:tracking:create",
   "shipment:eta:update",
   "shipment:exceptions:read",
+  "analytics:control-tower:read",
+  "analytics:procurement:read",
+  "analytics:inventory:read",
+  "analytics:fulfillment:read",
+  "analytics:logistics:read",
+  "analytics:suppliers:read",
+  "exceptions:read",
 ];
 
 export async function createTestApp(): Promise<INestApplication> {

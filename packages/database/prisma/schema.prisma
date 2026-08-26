@@ -147,6 +147,11 @@ model Supplier {
   email       String?
   phone       String?
   status      SupplierStatus @default(ACTIVE)
+  // Nullable, populated only where known — same precision as Shipment's
+  // origin/dest coordinates below. Feeds the phase 4 network map; never
+  // guessed/geocoded, only set from real seed/reference data.
+  latitude    Decimal?       @db.Decimal(9, 6)
+  longitude   Decimal?       @db.Decimal(9, 6)
   createdAt   DateTime       @default(now())
 
   tenant           Tenant            @relation(fields: [tenantId], references: [id])
@@ -216,6 +221,11 @@ model PurchaseOrder {
 
   @@unique([tenantId, poNumber])
   @@index([tenantId])
+  // Analytics query patterns (phase 4): open/overdue PO counts+value,
+  // supplier performance rollups, PO value trend by expected date.
+  @@index([tenantId, status])
+  @@index([tenantId, supplierId])
+  @@index([tenantId, expectedDeliveryDate])
   @@map("purchase_orders")
 }
 
@@ -255,6 +265,8 @@ model GoodsReceipt {
   lines         GoodsReceiptLine[]
 
   @@index([tenantId])
+  // Supplier on-time performance rollups (phase 4).
+  @@index([tenantId, receivedAt])
   @@map("goods_receipts")
 }
 
@@ -343,6 +355,9 @@ model Warehouse {
   address   String?
   province  String?
   country   String?
+  // Nullable, populated only where known — feeds the phase 4 network map.
+  latitude  Decimal?        @db.Decimal(9, 6)
+  longitude Decimal?        @db.Decimal(9, 6)
   status    WarehouseStatus @default(ACTIVE)
   createdAt DateTime        @default(now())
 
@@ -432,6 +447,8 @@ model StockMovement {
 
   @@index([tenantId])
   @@index([productId, warehouseId])
+  // Inventory movement trend (phase 4): inbound/outbound physical qty over time.
+  @@index([tenantId, createdAt])
   @@map("stock_movements")
 }
 
@@ -457,6 +474,9 @@ model Customer {
   city         String?
   province     String?
   country      String?
+  // Nullable, populated only where known — feeds the phase 4 network map.
+  latitude     Decimal?       @db.Decimal(9, 6)
+  longitude    Decimal?       @db.Decimal(9, 6)
   status       CustomerStatus @default(ACTIVE)
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
@@ -514,6 +534,11 @@ model SalesOrder {
 
   @@unique([tenantId, orderNumber])
   @@index([tenantId])
+  // Analytics query patterns (phase 4): open SO counts, customer OTIF,
+  // demand rollups by requested delivery date.
+  @@index([tenantId, status])
+  @@index([tenantId, customerId])
+  @@index([tenantId, requestedDeliveryDate])
   @@map("sales_orders")
 }
 
@@ -666,6 +691,12 @@ model Shipment {
   plannedArrivalAt     DateTime?
   actualDepartureAt    DateTime?
   actualArrivalAt      DateTime?
+  // Set exactly once, in ShipmentsService.transition(), when status
+  // transitions to DELIVERED. Distinct from actualArrivalAt (set on the
+  // ARRIVED transition and left alone thereafter) — this is the single
+  // authoritative "delivered" timestamp analytics uses for OTIF and
+  // logistics KPIs (see docs/adr/0010-otif-definition.md).
+  deliveredAt          DateTime?
   estimatedArrivalAt   DateTime?
   lastTrackingEventAt  DateTime?
   createdAt            DateTime          @default(now())
@@ -681,6 +712,12 @@ model Shipment {
 
   @@unique([tenantId, shipmentNumber])
   @@index([tenantId])
+  // Analytics query patterns (phase 4): active/delayed shipment counts,
+  // inbound/outbound trend, transit-time and OTIF rollups.
+  @@index([tenantId, status])
+  @@index([tenantId, direction])
+  @@index([tenantId, estimatedArrivalAt])
+  @@index([tenantId, deliveredAt])
   @@map("shipments")
 }
 

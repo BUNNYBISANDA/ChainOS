@@ -29,6 +29,21 @@ export const RECEIVABLE_STATUSES: PurchaseOrderStatus[] = [
   PurchaseOrderStatus.PARTIALLY_RECEIVED,
 ];
 
+/** Not yet fully received or cancelled — used for "Open PO" KPIs (phase 4 analytics) and dashboards alike. */
+export const OPEN_PO_STATUSES: PurchaseOrderStatus[] = [
+  PurchaseOrderStatus.DRAFT,
+  PurchaseOrderStatus.APPROVED,
+  PurchaseOrderStatus.SHIPPED,
+  PurchaseOrderStatus.PARTIALLY_RECEIVED,
+];
+
+/** Committed to arrive but not yet fully received — the "Incoming" side of the inventory-risk projection (phase 4 analytics). DRAFT is excluded: not yet approved/committed. */
+export const INCOMING_PO_STATUSES: PurchaseOrderStatus[] = [
+  PurchaseOrderStatus.APPROVED,
+  PurchaseOrderStatus.SHIPPED,
+  PurchaseOrderStatus.PARTIALLY_RECEIVED,
+];
+
 export function assertPoTransition(current: PurchaseOrderStatus, target: PurchaseOrderStatus): void {
   if (!TRANSITIONS[current].includes(target)) {
     throw new BadRequestAppException(

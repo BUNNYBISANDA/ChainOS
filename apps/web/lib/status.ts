@@ -64,6 +64,26 @@ export function salesOrderStatusTone(status: string): Tone {
   return SALES_ORDER_STATUS_TONE[status] ?? "neutral";
 }
 
+const SEVERITY_TONE: Record<string, Tone> = {
+  INFO: "info",
+  WARNING: "warning",
+  CRITICAL: "danger",
+};
+
+export function severityTone(severity: string): Tone {
+  return SEVERITY_TONE[severity] ?? "neutral";
+}
+
+const RISK_LEVEL_TONE: Record<string, Tone> = {
+  HEALTHY: "success",
+  PROJECTED_STOCKOUT: "warning",
+  STOCKOUT: "danger",
+};
+
+export function riskLevelTone(level: string): Tone {
+  return RISK_LEVEL_TONE[level] ?? "neutral";
+}
+
 export function formatStatusLabel(status: string): string {
   return status.replace(/_/g, " ");
 }

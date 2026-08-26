@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Pencil, ClipboardList } from "lucide-react";
 import { apiGet, ApiError } from "@/lib/api";
-import type { SupplierDetail } from "@/lib/types";
+import type { SupplierDetail, SupplierPerformanceRow } from "@/lib/types";
 import { PageHeader } from "@/components/page-header";
 import { ButtonLink } from "@/components/ui/button-link";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { ErrorState } from "@/components/ui/error-state";
 import { EmptyState } from "@/components/ui/empty-state";
 import { poStatusTone, supplierStatusTone, formatStatusLabel } from "@/lib/status";
-import { formatDate, formatMoney } from "@/lib/format";
+import { formatDate, formatMoney, formatPercent } from "@/lib/format";
 
 export default async function SupplierDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -23,6 +23,11 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
     if (err instanceof ApiError && err.statusCode === 404) notFound();
     return <ErrorState message="Could not load this supplier." />;
   }
+
+  // Analytics permission is role-gated separately from supplier:read — a
+  // 403 here (or any other failure) just hides the performance card rather
+  // than breaking the whole page.
+  const performance = await apiGet<SupplierPerformanceRow>(`/analytics/suppliers/${id}?range=90d`).catch(() => null);
 
   return (
     <>
@@ -58,6 +63,23 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
           </CardBody>
         </Card>
       </div>
+
+      {performance && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Performance (last 90 days)</CardTitle>
+            <Link href="/analytics/suppliers" className="text-xs font-medium text-accent hover:underline">
+              View all suppliers
+            </Link>
+          </CardHeader>
+          <CardBody className="grid grid-cols-4 gap-4">
+            <PerfStat label="On-Time Delivery" value={formatPercent(performance.onTimePercent)} />
+            <PerfStat label="Supplier OTIF" value={formatPercent(performance.otifPercent)} />
+            <PerfStat label="Avg Lead Time" value={performance.avgLeadTimeDays === null ? "N/A" : `${performance.avgLeadTimeDays.toFixed(1)}d`} />
+            <PerfStat label="Late POs" value={String(performance.latePoCount)} />
+          </CardBody>
+        </Card>
+      )}
 
       <Card className="mb-6">
         <CardHeader>
@@ -118,6 +140,15 @@ function Field({ label, value }: { label: string; value: string | null | undefin
     <div>
       <dt className="text-xs text-ink-faint">{label}</dt>
       <dd className="text-ink">{value || "—"}</dd>
+    </div>
+  );
+}
+
+function PerfStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-ink">{value}</p>
     </div>
   );
 }
